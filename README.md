@@ -6,33 +6,46 @@ free public RPC endpoints and provides transparent failover against `429` and
 
 ## Status
 
-**Phase 1 — Configuration contract.** This phase delivers:
+**Phase 1 — Configuration contract.** A Pydantic v2 schema (`core/models.py`)
+defines `RouterConfig` with strict `extra="forbid"` validation; a YAML loader
+(`core/config.py`) parses configs into it. A sample `config.yaml` exercises
+every required field. 100% line + branch coverage on `core/models.py` and
+`core/config.py`.
 
-- A Pydantic v2 schema (`core/models.py`) describing the full `RouterConfig`
-  contract: `GlobalSettings`, `RoutingStrategy` enum, `RpcNode`, and
-  `RouterConfig` with strict `extra="forbid"` validation.
-- A strict YAML loader (`core/config.py`) exposing exactly two public
-  functions: `load_config(path)` and `parse_config_dict(raw)`.
-- A **command-line entry point** delivered as the `__main__` block of
-  `core/config.py`: `python -m core.config <path-to-config.yaml>` validates
-  a YAML file against the schema, prints a one-line `OK:` summary on
-  success, and exits non-zero with a `FAIL:` line on schema/IO errors.
-- A sample `config.yaml`, an exhaustive `tests/test_models.py` /
-  `tests/test_config.py` pair, and 100% line+branch coverage on `core/`.
+**Phase 2 — Live router.** The full proxy stack now ships:
 
-Business logic (proxy, health prober, TUI) is added in later phases — see
-[Out of Scope](#out-of-scope) below.
+- **`core/state.py`** — in-memory `RouterState` (per-node `NodeStats`,
+  rolling 1s `tps_1s`, 256-entry event log) guarded by an
+  `asyncio.Lock`. `snapshot()` is a `copy.deepcopy` decoupled from live
+  mutations so the TUI is a pure observer.
+- **`core/router.py`** — `aiohttp.web` proxy at `POST /` + liveness
+  probe at `GET /healthz`. Strategy-aware `select_node` honours
+  `priority`, `round_robin`, `lowest_latency`, and `failover`.
+  `forward_with_failover` walks the sorted chain with bounded
+  exponential backoff on `429` / `5xx` / network / JSON errors and
+  never surfaces a transient failure to the caller. The proxy's
+  self-heal fallback retries every node when the healthy pool
+  empties so the system survives a global outage.
+- **`core/prober.py`** — background `eth_blockNumber` prober that
+  updates each `NodeStats` once per `probe_interval_seconds`,
+  with per-tick exception isolation.
+- **`ui/dashboard.py`** — read-only 3-row `rich` TUI (header / body
+  table / live event tape) with the cyberpunk palette
+  (`#00ff9c` neon green, `#ff2bd6` magenta, `#7df9ff` cyan).
+- **`core/__main__`** — `python -m core.router <config.yaml> [--with-tui]`
+  wires the runner, prober, and optional TUI together on one
+  event loop and shuts them down cleanly on `Ctrl+C`.
 
-## Quickstart (Phase 1)
+## Quickstart (Phase 2)
 
 ```bash
-pip install -r requirements.txt        # install runtime + test + dev deps
-pytest -q                              # run the full test suite (32 tests, 100% cov)
-python -m core.config config.yaml      # validate a config file via the __main__ block
+pip install -r requirements.txt                   # install runtime + test + dev deps
+pytest -q                                         # 90 tests, 100% line+branch cov
+python -m core.config config.yaml                 # validate a config file
+python -m core.router config.yaml --with-tui      # run the router + TUI
 ```
 
-That's the whole Phase 1 surface area. Each command is explained in detail
-below.
+Each command is explained in detail below.
 
 ## Install
 
@@ -44,16 +57,15 @@ pip install -r requirements.txt
 
 `requirements.txt` pins:
 
-- **Runtime** — `pydantic>=2.6,<3`, `PyYAML>=6.0`
-- **Tests** — `pytest>=8.0`, `pytest-asyncio>=0.23`, `pytest-cov>=4.1`
+- **Runtime** — `pydantic>=2.6,<3`, `PyYAML>=6.0`, `aiohttp>=3.9,<3.13`, `rich>=13.7,<14`
+- **Tests** — `pytest>=8.0`, `pytest-asyncio>=0.23`, `pytest-cov>=4.1`, `pytest-aiohttp>=1.0`, `aioresponses>=0.7`, `pytest-timeout>=2.1`
 - **Dev tooling** — `mypy>=1.10`, `ruff>=0.5`, `types-PyYAML>=6.0`
 
-A Python 3.11+ interpreter is required (the schema uses `from __future__
-import annotations` and PEP 604-style unions through `typing.Annotated`).
+A Python 3.11+ interpreter is required.
 
 ## Run the tests
 
-The full test suite is the verification gate for Phase 1. From the repo
+The full test suite is the verification gate for Phase 2. From the repo
 root:
 
 ```bash
@@ -63,18 +75,18 @@ pytest -q
 Expected output:
 
 ```
-................................                                         [100%]
-32 passed in 0.24s
+.................................................................  [100%]
+90 passed in 1.0s
 ```
 
 ### Coverage gate (must hit 100%)
 
 The same suite with the coverage threshold applied is the canonical
-acceptance command — it will exit non-zero if `core/` falls below 100%
-line or branch coverage:
+acceptance command — it will exit non-zero if any module in `core/` or
+`ui/` falls below 100% line or branch coverage:
 
 ```bash
-python -m pytest -q --cov=core --cov-branch --cov-fail-under=100
+python -m pytest -q --cov=core --cov=ui --cov-branch --cov-fail-under=100
 ```
 
 Expected footer:
@@ -82,8 +94,13 @@ Expected footer:
 ```
 core/__init__.py       0      0      0      0   100%
 core/config.py        27      0      6      0   100%
-core/models.py        52      0     10      0   100%
-TOTAL                 79      0     16      0   100%
+core/models.py        50      0     10      0   100%
+core/prober.py        59      0      6      0   100%
+core/router.py       154      0     34      0   100%
+core/state.py         67      0      6      0   100%
+ui/__init__.py         0      0      0      0   100%
+ui/dashboard.py       86      0      6      0   100%
+TOTAL                443      0     68      0   100%
 Required test coverage of 100% reached. Total coverage: 100.00%
 ```
 
@@ -93,33 +110,16 @@ Both run with their built-in defaults (no `pyproject.toml` / `ruff.toml` /
 `mypy.ini` is needed for the current code):
 
 ```bash
-ruff check core tests
-mypy --strict core
+ruff check core ui tests
+mypy --strict core ui
 ```
 
 Both commands must exit `0`.
 
-## Validate a config file (`__main__` block)
+## Validate a config file (`core.config`)
 
-The `__main__` block of `core/config.py` is the **Phase 1 command-line
-entry point** for validating a YAML config against the
-`RouterConfig` schema. It is a one-liner:
-
-```bash
-python -m core.config <path-to-config.yaml>
-```
-
-### Behaviour
-
-| Input                                  | Exit | Stdout / stderr                                                                                  |
-| -------------------------------------- | ---- | ------------------------------------------------------------------------------------------------ |
-| Valid config file                      | `0`  | `OK: loaded N rpc_node(s); listen_port=<port>` (one line on stdout)                              |
-| File does not exist                    | `1`  | `FAIL: FileNotFoundError: [Errno 2] No such file or directory: '<path>'` (stderr)                |
-| Empty / non-mapping YAML               | `1`  | `FAIL: ValidationError: ...` (pydantic)                                                          |
-| Schema-invalid YAML (bad port, dup id) | `1`  | `FAIL: ValidationError: <error list>` (pydantic)                                                 |
-| Missing CLI argument                   | `2`  | `usage: python -m core.config <path-to-config.yaml>` (stderr)                                    |
-
-### Try it on the bundled sample
+The `__main__` block of `core/config.py` is the Phase 1 entry point for
+validating a YAML config against the `RouterConfig` schema:
 
 ```bash
 python -m core.config config.yaml
@@ -131,36 +131,130 @@ prints:
 OK: loaded 2 rpc_node(s); listen_port=8545
 ```
 
-The sample exercises every required field in `core/models.py`: a `global`
-block with `listen_port`, `probe_interval_seconds`,
-`request_timeout_seconds`, and `max_retries`, plus two `rpc_nodes` (one
-HTTP, one HTTPS) using the `priority` routing strategy with distinct
-providers and distinct priorities.
+## Phase 2 — Running the router
 
-### Use it from CI
-
-A pre-deploy check that the config is well-formed is one shell line:
+The router is a single-process service that fronts your configured
+upstream RPC nodes and transparently fails over on `429` / `5xx` / network
+errors. The canonical entry point is:
 
 ```bash
-python -m core.config config.yaml || exit 1
+python -m core.router <config.yaml> [--with-tui]
+```
+
+| Flag         | Meaning                                                                |
+|--------------|------------------------------------------------------------------------|
+| `config`     | Path to a YAML router config file (see `core/models.py`).             |
+| `--with-tui` | Also launch the cyberpunk Rich TUI dashboard in this same process.   |
+
+The router listens on `127.0.0.1:<global.listen_port>`. `Ctrl+C` (or
+`SIGTERM` on POSIX) triggers a clean shutdown of the runner, prober,
+and TUI task.
+
+### Endpoints
+
+| Method | Path        | Behaviour                                                |
+|--------|-------------|----------------------------------------------------------|
+| `POST` | `/`         | JSON-RPC passthrough. Body: `{"jsonrpc": "2.0", ...}`.    |
+| `GET`  | `/healthz`  | Liveness probe. Always returns `{"ok": true}` (HTTP 200). |
+
+### Failover contract
+
+* `429` (rate-limited) and any `5xx` upstream response → failover.
+* `aiohttp.ClientError` / `asyncio.TimeoutError` → failover.
+* Non-mapping JSON body (e.g. a JSON array) → failover.
+* On total exhaustion, the proxy returns `503 {"error": "no healthy upstream"}`.
+
+The backoff schedule is **bounded exponential**:
+
+```
+delay = min(base * 2 ** (attempt - 1), cap)
+base = request_timeout_seconds / 4
+cap  = request_timeout_seconds * 4
+```
+
+The `caller` is never exposed to the upstream's transient errors.
+
+### TUI layout
+
+```
+╭─ WEB3 SMART RPC ROUTER | uptime 30.0s | TPS(1s) 1.00 | req 7 | ok 5 | failover 2 ─╮
+┏━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Provider ┃ URL                   ┃ Pri ┃ Strategy ┃ Healthy ┃ Latency(ms) ┃ ConsecFail ┃ LastError                   ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ alpha    │ https://alpha.test/rpc │   1 │ PRIORITY │ YES     │       12.5 │          0 │                            │
+│ beta     │ https://beta.test/rpc  │   2 │ FAILOVER │ NO      │         n/a │          3 │ upstream returned HTTP 503 │
+└──────────┴────────────────────────┴─────┴──────────┴─────────┴─────────────┴────────────┴────────────────────────────┘
+╭─ Live event tape ────────────────────────────────────────────────────────────────────╮
+│ failover alpha -> beta                                                                    │
+│ probe-fail beta upstream returned HTTP 503                                                │
+│ failover beta -> alpha                                                                    │
+╰──────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+The dashboard refreshes once per second and is a **read-only observer**;
+it never mutates `RouterState` and never takes its lock.
+
+### In-memory state
+
+`RouterState` is the single source of truth for the running router:
+
+```python
+@dataclass
+class NodeStats:
+    provider: str
+    url: str
+    priority: int
+    routing_strategy: RoutingStrategy
+    healthy: bool = True
+    latency_ms: Optional[float] = None
+    consecutive_failures: int = 0
+    last_error: Optional[str] = None
+    last_probed_at: Optional[float] = None
+```
+
+`RouterState` exposes `nodes`, `round_robin_index`, `total_requests`,
+`total_success`, `total_failovers`, a rolling `tps_1s`, and a
+256-entry `event_log` of `failover` / `probe-fail` lines.
+
+### Sample transcript
+
+```
+$ python -m core.router config.yaml --with-tui
+[INFO] router: router listening on http://127.0.0.1:8545 (tui=True)
+
+# (TUI renders, refreshes once per second; see the layout above)
+
+^C
+router: shutting down
 ```
 
 ## Project layout
 
 ```
 .
-├── core/                    # Phase 1 deliverable: schema + YAML loader
+├── core/                    # Phase 1 + Phase 2 deliverable
 │   ├── __init__.py
 │   ├── config.py            # load_config, parse_config_dict, __main__ block
-│   └── models.py            # GlobalSettings, RoutingStrategy, RpcNode, RouterConfig
-├── ui/                      # Phase 4 — TUI dashboard (empty for now)
-│   └── __init__.py
-├── tests/                   # Phase 1 test suite
+│   ├── models.py            # GlobalSettings, RoutingStrategy, RpcNode, RouterConfig
+│   ├── state.py             # RouterState, NodeStats, transaction(), snapshot()
+│   ├── router.py            # ProxyHandler, select_node, forward_with_failover, main_async
+│   ├── prober.py            # probe_once, prober_loop (background health checks)
+│   └── __main__             # entry point: python -m core.router <config> [--with-tui]
+├── ui/
+│   ├── __init__.py
+│   └── dashboard.py         # render_frame, dashboard_loop, __main__ demo
+├── tests/                   # Phase 1 + Phase 2 test suite
 │   ├── __init__.py
 │   ├── conftest.py          # valid_global_dict, valid_node_dict, tmp_config_file
 │   ├── test_models.py       # 22 cases covering every Pydantic constraint
-│   └── test_config.py       # 10 cases covering the loader + __main__ block
+│   ├── test_config.py       # 10 cases covering the loader + __main__ block
+│   ├── test_state.py        # 13 cases covering state + transaction + snapshot
+│   ├── test_router.py       # 19 cases covering select_node + forward + handler
+│   ├── test_prober.py       #  6 cases covering probe_once + prober_loop
+│   ├── test_dashboard.py    #  9 cases covering render_frame + dashboard_loop
+│   └── test_integration.py  #  6 cases covering main_async + end-to-end proxy
 ├── config.yaml              # validated sample
+├── pytest.ini
 ├── requirements.txt
 ├── README.md                # this file
 └── .gitignore
@@ -168,15 +262,20 @@ python -m core.config config.yaml || exit 1
 
 ## Out of scope
 
-The following are **not** part of Phase 1 and intentionally absent from
+The following are **not** part of Phase 2 and intentionally absent from
 the code:
 
-- Phase 2 — the proxy / routing engine, `aiohttp` or `FastAPI` server.
-- Phase 3 — the health prober, exponential backoff queue, in-memory state.
-- Phase 4 — the Rich TUI dashboard (`rich.live`, `rich.table`,
-  `rich.layout`).
-- Docker, CI, or any deployment artifact.
-- Authentication, rate-limit budget tracking, request caching, metrics.
-
-No `rich`, `aiohttp`, `fastapi`, `httpx`, or `uvicorn` dependency will be
-added in Phase 1.
+- A real head-to-head against live public RPC endpoints (Cloudflare,
+  Ankr, PublicNode). All upstream traffic in this phase is mocked via
+  `aioresponses`. A separate "smoke test against the real internet"
+  step can land in a future phase.
+- Docker, systemd unit, or any deployment artifact.
+- Authentication, request signing, API keys, per-client rate-limit
+  budgets.
+- Persistent state (no SQLite, no JSON snapshot to disk). `RouterState`
+  is in-memory only and resets on process restart.
+- Replacing the existing Phase 1 `RouterConfig` schema or YAML
+  contract. Phase 2 consumes it read-only.
+- Adding extra dependencies beyond the four pinned in
+  `requirements.txt`. In particular, no `fastapi`, `uvicorn`, `httpx`,
+  `sqlalchemy`, or `redis`.
