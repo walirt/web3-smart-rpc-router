@@ -1,0 +1,356 @@
+# Web3 Smart RPC Router
+
+一个面向 Ethereum 风格 JSON-RPC 流量的本地智能网关。它把多个公共上游
+RPC 节点聚合成一个稳定的本地入口，在上游出现临时故障时自动故障转移，
+并通过赛博朋克风格的终端 TUI 展示实时健康、流量和自愈日志。
+
+项目坚持本地优先：不需要数据库，不需要托管控制面，不要求 API Key，也不
+引入比 `aiohttp` 和 `rich` 更重的运行时框架。
+
+## 解决的问题
+
+免费公共 RPC 节点很方便，但也很脆弱。单个节点可能返回 `429` 限流、`5xx`
+故障、连接超时，或者短暂不可用。很多本地脚本、钱包和开发工具只接受一个
+稳定的 JSON-RPC URL，因此任何上游波动都会直接变成应用失败。
+
+本项目提供一个稳定的本地入口：
+
+```text
+client -> http://127.0.0.1:<listen_port>/ -> best available upstream RPC node
+```
+
+当上游返回临时失败时，路由器会按策略尝试其他节点，使用有上限的指数退避，
+并把成功上游的响应返回给调用方。客户端不会看到中间的 `429` 或 `5xx`。
+
+## 功能清单
+
+| 功能 | 状态 | 证据 |
+|---|---:|---|
+| 严格 YAML 配置契约 | 完成 | `core/models.py`, `core/config.py`, `config.yaml` |
+| 拒绝未知配置字段 | 完成 | Pydantic `extra="forbid"` |
+| 本地 JSON-RPC 代理 | 完成 | `core/router.py`, `POST /` |
+| 存活检查接口 | 完成 | `GET /healthz -> {"ok": true}` |
+| 针对 `429` 和 `5xx` 的故障转移 | 完成 | `forward_with_failover()` 与路由测试 |
+| 网络错误、超时、异常 JSON 的故障转移 | 完成 | 使用 `aioresponses` 的上游模拟测试 |
+| 有上限的指数退避 | 完成 | `request_timeout_seconds / 4` 起始，`* 4` 封顶 |
+| 多种路由策略 | 完成 | `priority`, `round_robin`, `lowest_latency`, `failover` |
+| 后台健康探测 | 完成 | `core/prober.py`, `eth_blockNumber` 探测 |
+| 内存状态与快照 | 完成 | `core/state.py`, `RouterState.snapshot()` |
+| 只读 Rich TUI 大盘 | 完成 | `ui/dashboard.py`, `--with-tui` |
+| 100% 行覆盖和分支覆盖 | 完成 | `pytest --cov-branch --cov-fail-under=100` |
+| 严格类型检查和 lint | 完成 | `mypy --strict core ui`, `ruff check core ui tests` |
+
+## 快速开始
+
+安装依赖：
+
+```bash
+pip install -r requirements.txt
+```
+
+验证示例配置：
+
+```bash
+python -m core.config config.yaml
+```
+
+启动路由器和终端大盘：
+
+```bash
+python -m core.router config.yaml --with-tui
+```
+
+发送 JSON-RPC 请求到：
+
+```text
+http://127.0.0.1:8545/
+```
+
+检查存活状态：
+
+```bash
+curl http://127.0.0.1:8545/healthz
+```
+
+预期响应：
+
+```json
+{"ok": true}
+```
+
+## 配置
+
+`config.yaml` 是运行时行为的单一配置来源：
+
+```yaml
+global:
+  listen_port: 8545
+  probe_interval_seconds: 5.0
+  request_timeout_seconds: 10.0
+  max_retries: 3
+
+rpc_nodes:
+  - provider: cloudflare-eth
+    url: https://cloudflare-ethereum.com
+    routing_strategy: priority
+    priority: 1
+    weight: 1
+    headers: {}
+```
+
+配置校验规则：
+
+- 顶层只允许 `global` 和 `rpc_nodes`。
+- 节点和全局配置中的未知字段都会被拒绝。
+- provider 名称和 priority 必须唯一。
+- URL 必须使用 `http` 或 `https`。
+- timeout 和 probe interval 必须为正数。
+- 错误 YAML 和非法 schema 会原样抛出，不会被吞掉。
+
+## 运行行为
+
+### 接口
+
+| 方法 | 路径 | 行为 |
+|---|---|---|
+| `POST` | `/` | JSON-RPC 请求透传到选中的上游节点 |
+| `GET` | `/healthz` | 本地存活检查，进程运行时返回 HTTP 200 |
+
+### 故障转移契约
+
+以下上游结果会触发重试：
+
+- HTTP `429`
+- HTTP `5xx`
+- `aiohttp.ClientError`
+- `asyncio.TimeoutError`
+- JSON 响应不是对象
+- JSON 解析或内容类型错误
+
+退避策略为有上限的指数退避：
+
+```text
+base  = request_timeout_seconds / 4
+cap   = request_timeout_seconds * 4
+delay = min(base * 2 ** (attempt - 1), cap)
+```
+
+当所有节点都失败时，本地代理返回：
+
+```json
+{"error": "no healthy upstream"}
+```
+
+HTTP 状态码为 `503`。
+
+### 路由策略
+
+| 策略 | 选择规则 |
+|---|---|
+| `priority` | 选择健康节点中 priority 数值最小的节点 |
+| `round_robin` | 按 priority 顺序在健康节点中轮转 |
+| `lowest_latency` | 选择健康节点中探测延迟最低的节点 |
+| `failover` | 始终从 priority 顺序中的第一个健康节点开始 |
+
+如果所有节点都被标记为不健康，转发路径仍会按 priority 顺序尝试完整配置链。
+这样当全局故障恢复后，服务仍然可以自愈。
+
+## 终端大盘
+
+使用 `--with-tui` 可以在同一个事件循环中启动 Rich 终端大盘。TUI 是只读的：
+它只读取 `RouterState.snapshot()`，不会修改请求流。
+
+大盘包含：
+
+- Header：运行状态和 uptime。
+- Node Health & Method Routing：provider、status、ping、strategy、quota bar、
+  success-rate estimate。
+- Traffic & Performance：当前 TPS、故障转移次数、总请求数和流量迁移提示。
+- Live Self-Healing Logs：探测失败、故障转移和请求事件日志。
+
+实现位置：`ui/dashboard.py`，主要使用 `rich.layout.Layout`、`rich.panel.Panel`
+和 `rich.table.Table`。
+
+## 架构
+
+```text
+config.yaml
+    |
+    v
+core.config.load_config()
+    |
+    v
+core.models.RouterConfig
+    |
+    +--> core.state.RouterState
+    |       - 每个 provider 的 NodeStats
+    |       - 请求计数器
+    |       - 有上限的事件日志
+    |       - 给只读消费者使用的 snapshot()
+    |
+    +--> core.router.make_app()
+    |       - POST / JSON-RPC proxy
+    |       - GET /healthz
+    |       - 按策略选择上游
+    |       - 有上限的故障转移和退避
+    |
+    +--> core.prober.prober_loop()
+    |       - 周期性 eth_blockNumber 探测
+    |       - 延迟和健康状态更新
+    |
+    +--> ui.dashboard.dashboard_loop()
+            - 只读终端大盘
+```
+
+模块边界：
+
+- `core/models.py`：只负责 schema。
+- `core/config.py`：只负责 YAML 加载和校验。
+- `core/state.py`：内存运行状态、锁和快照。
+- `core/router.py`：请求路由、故障转移和 aiohttp 应用装配。
+- `core/prober.py`：后台健康检查。
+- `ui/dashboard.py`：终端渲染和刷新循环。
+
+## 工程质量
+
+实现重点是可复现、防御式行为和安全边界：
+
+- Pydantic v2 模型拒绝未知配置字段。
+- 校验错误不会被吞掉或替换成模糊错误。
+- 运行时状态写入通过 `RouterState.transaction()` 和 `asyncio.Lock` 保护。
+- TUI 使用深拷贝快照，不直接读写 live state。
+- 上游请求集中在一个 `aiohttp.ClientSession`。
+- 如果调用方没有注入 upstream client，应用会通过 aiohttp cleanup context 自己创建和关闭。
+- prober 对单次 tick 的异常做隔离，一个坏节点不会停止健康检查。
+- 测试使用 mocked upstream，不依赖真实公共 RPC 节点。
+- 不写入持久化秘密、不引入数据库状态。
+
+## 验证
+
+所有命令都从仓库根目录运行：
+
+```bash
+python -m pytest -q --cov=core --cov=ui --cov-branch --cov-fail-under=100
+ruff check core ui tests
+mypy --strict core ui
+```
+
+当前验证结果：
+
+```text
+96 passed
+Required test coverage of 100% reached. Total coverage: 100.00%
+ruff: All checks passed
+mypy: Success: no issues found
+```
+
+如果 Windows 沙箱环境无法写入默认用户临时目录，可以使用仓库内临时目录：
+
+```bash
+python -m pytest -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local \
+  --cov=core --cov=ui --cov-branch --cov-fail-under=100
+```
+
+## 测试覆盖地图
+
+| 测试文件 | 验证内容 |
+|---|---|
+| `tests/test_models.py` | schema 约束、枚举、URL 校验、重复值检查 |
+| `tests/test_config.py` | YAML 加载、错误 YAML 传播、CLI 校验路径 |
+| `tests/test_state.py` | 锁、快照、事件日志上限、TPS 计数、状态初始化 |
+| `tests/test_router.py` | 路由策略、故障转移、退避、handler 错误、app 生命周期 |
+| `tests/test_prober.py` | 探测成功/失败、loop 取消、异常隔离 |
+| `tests/test_dashboard.py` | 渲染布局、大盘标签、日志、demo state、loop 退出 |
+| `tests/test_integration.py` | 进程内启动路由器和真实本地 HTTP 请求 |
+
+## AI / Agent 集成证据
+
+本仓库通过 CyOps agent 工作流构建和迭代，普通 Git 提交记录保留了实现过程。
+仓库内可见证据包括：
+
+- 使用 Claude Harness 元数据的 agent-authored conventional commits。
+- Git 历史展示了实现、review 修复、文档优化和 TUI 调整的迭代过程。
+- 测试把预期行为编码成可执行检查，而不是只保留文字描述。
+- README 中记录了可复现的验证命令和覆盖率结果。
+- 本地优先设计使 Gateway snapshot 可以在不依赖外部服务的情况下验证。
+
+最终评分应结合 CyOps 平台 token activity 来确认平台内 agent 使用情况。
+
+## 实现创新点
+
+本项目不是普通反向代理，而是把几个本地优先能力组合成一个小而完整的系统：
+
+- 策略感知的 JSON-RPC 故障转移，避免把上游 `429` / `5xx` 暴露给客户端。
+- 当健康池为空时仍尝试完整配置链，为全局故障恢复提供自愈路径。
+- proxy、prober、dashboard 共享一个内存状态模型，不引入持久化或消息队列。
+- TUI 只读取深拷贝快照，把可观测性和请求流隔离开。
+- core 路由逻辑和 UI 渲染都保持 100% 行覆盖与分支覆盖。
+
+## 项目结构
+
+```text
+.
+|-- core/
+|   |-- __init__.py
+|   |-- config.py       # YAML loader and config validation CLI
+|   |-- models.py       # Pydantic configuration schema
+|   |-- prober.py       # Background upstream health checks
+|   |-- router.py       # aiohttp proxy, routing, failover, app entry point
+|   `-- state.py        # In-memory state, locking, snapshots
+|-- ui/
+|   |-- __init__.py
+|   `-- dashboard.py    # Rich terminal dashboard
+|-- tests/
+|   |-- conftest.py
+|   |-- test_config.py
+|   |-- test_dashboard.py
+|   |-- test_integration.py
+|   |-- test_models.py
+|   |-- test_prober.py
+|   |-- test_router.py
+|   `-- test_state.py
+|-- config.yaml
+|-- pytest.ini
+|-- requirements.txt
+|-- README.md
+`-- README_zh.md
+```
+
+## 依赖
+
+运行时：
+
+- `pydantic`
+- `PyYAML`
+- `aiohttp`
+- `rich`
+
+测试和质量工具：
+
+- `pytest`
+- `pytest-asyncio`
+- `pytest-aiohttp`
+- `pytest-cov`
+- `aioresponses`
+- `pytest-timeout`
+- `ruff`
+- `mypy`
+- `types-PyYAML`
+
+## 范围边界
+
+包含：
+
+- 本地 JSON-RPC 网关。
+- mocked upstream 测试。
+- 内存健康和流量状态。
+- 终端大盘。
+- 严格 schema 校验。
+
+不包含：
+
+- 公网部署。
+- 认证或 API Key 管理。
+- 持久化状态、SQLite、Redis 或外部数据库。
+- 真实公网 RPC benchmark。
+- FastAPI、uvicorn、httpx、React、Vue 或浏览器 UI。

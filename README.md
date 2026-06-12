@@ -1,5 +1,7 @@
 # Web3 Smart RPC Router
 
+[中文镜像 / Chinese mirror](README_zh.md)
+
 A local JSON-RPC gateway for Ethereum-style RPC traffic. It fronts multiple
 public upstream RPC endpoints, hides transient provider failures from clients,
 and shows live health, failover, and traffic state in a cyberpunk terminal UI.
@@ -280,12 +282,11 @@ includes:
 
 - Agent-authored conventional commits using the configured Claude Harness
   metadata.
-- `AGENTS.md` project instructions defining coding, coverage, and commit
-  discipline for agent work.
-- `plan.md` acceptance criteria and verification matrix used to drive the
-  implementation.
-- Tests that encode the agent plan into executable checks instead of relying on
-  prose-only claims.
+- Commit history showing iterative agent-driven implementation, review fixes,
+  documentation work, and UI refinement.
+- Tests that encode expected behavior into executable checks instead of relying
+  on prose-only claims.
+- Verification commands and coverage output recorded in the project README.
 - A local-only design that can be verified from the Gateway snapshot without
   external services.
 
