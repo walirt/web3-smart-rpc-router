@@ -250,9 +250,9 @@ router: shutting down
 │   ├── test_config.py       # 10 cases covering the loader + __main__ block
 │   ├── test_state.py        # 13 cases covering state + transaction + snapshot
 │   ├── test_router.py       # 19 cases covering select_node + forward + handler
-│   ├── test_prober.py       #  6 cases covering probe_once + prober_loop
-│   ├── test_dashboard.py    #  9 cases covering render_frame + dashboard_loop
-│   └── test_integration.py  #  6 cases covering main_async + end-to-end proxy
+│   ├── test_prober.py       #  7 cases covering probe_once + prober_loop
+│   ├── test_dashboard.py    # 11 cases covering render_frame + dashboard_loop
+│   └── test_integration.py  #  8 cases covering main_async + end-to-end proxy
 ├── config.yaml              # validated sample
 ├── pytest.ini
 ├── requirements.txt
