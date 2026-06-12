@@ -33,10 +33,12 @@ EVENT_TAPE_LINES = 8
 
 def render_frame(snapshot: dict[str, Any]) -> Layout:
     """Build one dashboard frame from a state snapshot."""
+    nodes: dict[str, NodeStats] = snapshot.get("nodes", {})
+    nodes_size = max(6, min(14, len(nodes) + 4))
     layout = Layout()
     layout.split_column(
         Layout(name="header", size=3),
-        Layout(name="nodes", size=10),
+        Layout(name="nodes", size=nodes_size),
         Layout(name="traffic", size=5),
         Layout(name="logs", size=EVENT_TAPE_LINES + 2),
     )
@@ -58,15 +60,14 @@ def _build_header(snapshot: dict[str, Any]) -> Panel:
     return Panel(body, box=box.ROUNDED, border_style=COLOR_CYAN, style=f"on {COLOR_BG}")
 
 
-def _build_nodes(snapshot: dict[str, Any]) -> Table:
-    """Build the node health and method-routing table."""
+def _build_nodes(snapshot: dict[str, Any]) -> Panel:
+    """Build the node health and method-routing panel."""
     table = Table(
         expand=True,
         show_lines=False,
-        box=box.ROUNDED,
-        title="📡 节点健康与方法分流大盘 (Node Health & Method Routing)",
-        title_style=f"bold {COLOR_CYAN}",
-        border_style=COLOR_CYAN,
+        box=None,
+        show_edge=False,
+        pad_edge=False,
         header_style=f"bold {COLOR_CYAN}",
     )
     table.add_column("PROVIDER", style="bold")
@@ -87,7 +88,14 @@ def _build_nodes(snapshot: dict[str, Any]) -> Table:
             _quota_bar(stats),
             _success_rate(stats),
         )
-    return table
+    return Panel(
+        table,
+        title="📡 节点健康与方法分流大盘 (Node Health & Method Routing)",
+        title_align="left",
+        box=box.ROUNDED,
+        border_style=COLOR_CYAN,
+        style=f"on {COLOR_BG}",
+    )
 
 
 def _build_traffic(snapshot: dict[str, Any]) -> Panel:
