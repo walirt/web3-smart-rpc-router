@@ -1,13 +1,11 @@
 # Web3 Smart RPC Router
 
-[中文镜像 / Chinese mirror](README_zh.md)
+English | [中文](README_zh.md)
+
+> _Built with [CyOps](https://docs.cysic.xyz/cysic-ai/cysic-automation/cyops/)_
 
 A local JSON-RPC gateway for Ethereum-style RPC traffic. It fronts multiple
-public upstream RPC endpoints, hides transient provider failures from clients,
-and shows live health, failover, and traffic state in a cyberpunk terminal UI.
-
-The project is intentionally local-first: no database, no hosted control plane,
-no API keys required, and no framework heavier than `aiohttp` plus `rich`.
+public upstream RPC endpoints, hides transient provider failures from clients, and shows live health, failover, and traffic state in a terminal UI.
 
 ## What It Solves
 
@@ -274,40 +272,6 @@ python -m pytest -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local \
 | `tests/test_dashboard.py` | Rendered layout, dashboard labels, logs, demo state, loop exit |
 | `tests/test_integration.py` | In-process router startup and real local HTTP requests |
 
-## AI / Agent Integration Evidence
-
-This repository was built and refined through CyOps agent workflows, with the
-implementation history recorded in normal Git commits. Repo-visible evidence
-includes:
-
-- Agent-authored conventional commits using the configured Claude Harness
-  metadata.
-- Commit history showing iterative agent-driven implementation, review fixes,
-  documentation work, and UI refinement.
-- Tests that encode expected behavior into executable checks instead of relying
-  on prose-only claims.
-- Verification commands and coverage output recorded in the project README.
-- A local-only design that can be verified from the Gateway snapshot without
-  external services.
-
-The project should be evaluated together with CyOps platform token activity for
-confirmed on-platform agent usage.
-
-## Implementation Innovation
-
-The interesting part of the project is not another generic reverse proxy. The
-router combines several local-first behaviors into one small system:
-
-- Strategy-aware JSON-RPC failover that prevents transient upstream `429` and
-  `5xx` responses from leaking to the client.
-- A self-healing fallback path that retries the full configured chain when the
-  health pool is empty.
-- A single in-memory state model shared by proxy, prober, and dashboard without
-  introducing persistence or a message broker.
-- A read-only TUI fed by deep-copy snapshots, keeping observability separate
-  from request flow.
-- 100% line and branch coverage across both core routing code and UI rendering.
-
 ## Project Layout
 
 ```text
@@ -334,7 +298,8 @@ router combines several local-first behaviors into one small system:
 |-- config.yaml
 |-- pytest.ini
 |-- requirements.txt
-`-- README.md
+|-- README.md
+`-- README_zh.md
 ```
 
 ## Dependencies
@@ -375,3 +340,7 @@ Not included:
 - Persistent state, SQLite, Redis, or external databases.
 - Real live-RPC benchmark tests.
 - FastAPI, uvicorn, httpx, React, Vue, or browser UI.
+
+## License
+
+MIT

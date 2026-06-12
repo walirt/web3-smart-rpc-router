@@ -1,11 +1,10 @@
 # Web3 Smart RPC Router
 
-一个面向 Ethereum 风格 JSON-RPC 流量的本地智能网关。它把多个公共上游
-RPC 节点聚合成一个稳定的本地入口，在上游出现临时故障时自动故障转移，
-并通过赛博朋克风格的终端 TUI 展示实时健康、流量和自愈日志。
+[English](README.md) | 中文
 
-项目坚持本地优先：不需要数据库，不需要托管控制面，不要求 API Key，也不
-引入比 `aiohttp` 和 `rich` 更重的运行时框架。
+> _由 [CyOps](https://docs.cysic.xyz/cysic-ai/cysic-automation/cyops/) 构建_
+
+一个面向 Ethereum 风格 JSON-RPC 流量的本地智能网关。它把多个公共上游 RPC 节点聚合成一个稳定的本地入口，在上游出现临时故障时自动故障转移，并通过终端 TUI 展示实时健康、流量和自愈日志。
 
 ## 解决的问题
 
@@ -263,29 +262,6 @@ python -m pytest -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local \
 | `tests/test_dashboard.py` | 渲染布局、大盘标签、日志、demo state、loop 退出 |
 | `tests/test_integration.py` | 进程内启动路由器和真实本地 HTTP 请求 |
 
-## AI / Agent 集成证据
-
-本仓库通过 CyOps agent 工作流构建和迭代，普通 Git 提交记录保留了实现过程。
-仓库内可见证据包括：
-
-- 使用 Claude Harness 元数据的 agent-authored conventional commits。
-- Git 历史展示了实现、review 修复、文档优化和 TUI 调整的迭代过程。
-- 测试把预期行为编码成可执行检查，而不是只保留文字描述。
-- README 中记录了可复现的验证命令和覆盖率结果。
-- 本地优先设计使 Gateway snapshot 可以在不依赖外部服务的情况下验证。
-
-最终评分应结合 CyOps 平台 token activity 来确认平台内 agent 使用情况。
-
-## 实现创新点
-
-本项目不是普通反向代理，而是把几个本地优先能力组合成一个小而完整的系统：
-
-- 策略感知的 JSON-RPC 故障转移，避免把上游 `429` / `5xx` 暴露给客户端。
-- 当健康池为空时仍尝试完整配置链，为全局故障恢复提供自愈路径。
-- proxy、prober、dashboard 共享一个内存状态模型，不引入持久化或消息队列。
-- TUI 只读取深拷贝快照，把可观测性和请求流隔离开。
-- core 路由逻辑和 UI 渲染都保持 100% 行覆盖与分支覆盖。
-
 ## 项目结构
 
 ```text
@@ -354,3 +330,7 @@ python -m pytest -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local \
 - 持久化状态、SQLite、Redis 或外部数据库。
 - 真实公网 RPC benchmark。
 - FastAPI、uvicorn、httpx、React、Vue 或浏览器 UI。
+
+## License
+
+MIT
