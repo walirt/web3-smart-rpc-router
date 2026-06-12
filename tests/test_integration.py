@@ -44,7 +44,11 @@ def integration_config(tmp_path: Path) -> Path:
     config = {
         "global": {
             "listen_port": port,
-            "probe_interval_seconds": 0.05,
+            # Long probe interval: the prober does one initial tick and
+            # then waits long enough that it can't fire again inside the
+            # test window. This stops the prober from racing with the
+            # aioresponses context the test installs.
+            "probe_interval_seconds": 60.0,
             "request_timeout_seconds": 2.0,
             "max_retries": 3,
         },
