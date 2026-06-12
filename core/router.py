@@ -26,6 +26,7 @@ import logging
 import os
 import signal
 import sys
+from collections.abc import AsyncIterator
 from typing import Any, Optional
 
 import aiohttp
@@ -58,16 +59,34 @@ def _healthy_pool(state: RouterState, cfg: list[RpcNode]) -> list[RpcNode]:
     return [n for n in cfg if state.nodes[n.provider].healthy]
 
 
-def _self_healing_pool(state: RouterState, cfg: list[RpcNode]) -> list[RpcNode]:
-    """Healthy subset, falling back to the full ``cfg`` when every node is sick.
+def _latency_sort_key(state: RouterState, node: RpcNode) -> tuple[bool, float, int]:
+    """Sort nodes with measured latency first, then by latency and priority."""
+    latency = state.nodes[node.provider].latency_ms
+    return (latency is None, latency if latency is not None else float("inf"), node.priority)
 
-    Used by :func:`forward_with_failover` so the proxy can keep trying
-    upstreams after a global outage clears; :func:`select_node` does
-    **not** use this fallback because a router with no healthy node has
-    no meaningful node to hand back to a caller.
+
+def _attempt_order(state: RouterState, cfg: list[RpcNode]) -> list[RpcNode]:
+    """Return the ordered failover chain for one proxied request.
+
+    The first hop honours the configured routing strategy. Subsequent
+    hops use a deterministic order so failover remains predictable.
+    When every node is currently marked unhealthy, fall back to trying
+    the whole configured set in priority order so the proxy can recover
+    after a global outage clears.
     """
+    if not cfg:
+        return []
     healthy = _healthy_pool(state, cfg)
-    return healthy if healthy else list(cfg)
+    strategy = cfg[0].routing_strategy
+    if not healthy:
+        return sorted(cfg, key=lambda n: n.priority)
+    if strategy is RoutingStrategy.ROUND_ROBIN:
+        first = select_node(state, cfg)
+        rest = [node for node in sorted(healthy, key=lambda n: n.priority) if node != first]
+        return [first, *rest]
+    if strategy is RoutingStrategy.LOWEST_LATENCY:
+        return sorted(healthy, key=lambda n: _latency_sort_key(state, n))
+    return sorted(healthy, key=lambda n: n.priority)
 
 
 def select_node(state: RouterState, cfg: list[RpcNode]) -> RpcNode:
@@ -154,8 +173,7 @@ async def forward_with_failover(
     """
     base = request_timeout_seconds / 4
     cap = request_timeout_seconds * 4
-    pool = _self_healing_pool(state, cfg)
-    ordered = sorted(pool, key=lambda n: n.priority)
+    ordered = _attempt_order(state, cfg)
     if not ordered:
         await state.record_request(success=False)
         raise NoHealthyNodeError("no nodes configured")
@@ -272,12 +290,22 @@ def make_app(
     app["cfg"] = cfg
     app["upstream_client"] = upstream_client
     app["request_timeout_seconds"] = request_timeout_seconds
+    if upstream_client is None:
+        app.cleanup_ctx.append(_managed_upstream_client)
     handler = ProxyHandler(
         state, cfg, request_timeout_seconds=request_timeout_seconds
     )
     app.router.add_post("/", handler.handle)
     app.router.add_get("/healthz", _healthz)
     return app
+
+
+async def _managed_upstream_client(app: web.Application) -> AsyncIterator[None]:
+    """Create and close the app-owned upstream client session."""
+    timeout = aiohttp.ClientTimeout(total=float(app["request_timeout_seconds"]))
+    async with aiohttp.ClientSession(timeout=timeout) as client:
+        app["upstream_client"] = client
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -313,12 +341,12 @@ async def main_async(cfg_path: str, with_tui: bool = False) -> None:
             finally:
                 stop.set()  # pragma: no cover - Windows-only path
             return  # pragma: no cover - Windows-only path
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
-                loop.add_signal_handler(sig, stop.set)
+        for sig in (signal.SIGINT, signal.SIGTERM):  # pragma: no cover - POSIX-only path
+            try:  # pragma: no cover - POSIX-only path
+                loop.add_signal_handler(sig, stop.set)  # pragma: no cover - POSIX-only path
             except NotImplementedError:  # pragma: no cover - safety net
                 pass
-        await stop.wait()
+        await stop.wait()  # pragma: no cover - POSIX-only path
 
     timeout = aiohttp.ClientTimeout(total=cfg.global_.request_timeout_seconds)
     async with aiohttp.ClientSession(timeout=timeout) as client:

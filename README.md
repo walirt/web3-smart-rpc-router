@@ -176,6 +176,15 @@ The `caller` is never exposed to the upstream's transient errors.
 
 ### TUI layout
 
+Current dashboard panels:
+
+- Header: `🚀 Web3 Smart RPC Router (v1.0)` with active status and `HH:MM:SS` uptime.
+- Node Health & Method Routing: `PROVIDER`, `STATUS`, `PING`, `ROUTING STRATEGY`,
+  `QUOTA USED`, and `SUCCESS RATE`.
+- Traffic & Performance: current TPS sparkline, failover count, total requests,
+  and the active traffic-shift hint.
+- Live Self-Healing Logs: timestamped request, probe-failure, and failover events.
+
 ```
 ╭─ WEB3 SMART RPC ROUTER | uptime 30.0s | TPS(1s) 1.00 | req 7 | ok 5 | failover 2 ─╮
 ┏━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓

@@ -395,6 +395,57 @@ async def test_malformed_upstream_body_treated_as_failure(
     assert state_for.total_failovers == 1
 
 
+async def test_forward_round_robin_uses_rotating_first_hop(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+    aiohttp_session: aiohttp.ClientSession,
+) -> None:
+    """The proxy path honours round_robin, not just ``select_node``."""
+    for node in two_node_config:
+        node.routing_strategy = RoutingStrategy.ROUND_ROBIN
+    body_a = {"jsonrpc": "2.0", "id": 1, "result": "alpha"}
+    body_b = {"jsonrpc": "2.0", "id": 2, "result": "beta"}
+    with aioresponses() as mocked:
+        mocked.post("https://alpha.test/rpc", payload=body_a, status=200)
+        mocked.post("https://beta.test/rpc", payload=body_b, status=200)
+        first, first_provider = await forward_with_failover(
+            state_for, two_node_config, aiohttp_session,
+            {"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber"},
+            request_timeout_seconds=10.0,
+        )
+        second, second_provider = await forward_with_failover(
+            state_for, two_node_config, aiohttp_session,
+            {"jsonrpc": "2.0", "id": 2, "method": "eth_blockNumber"},
+            request_timeout_seconds=10.0,
+        )
+    assert first == body_a
+    assert first_provider == "alpha"
+    assert second == body_b
+    assert second_provider == "beta"
+
+
+async def test_forward_lowest_latency_uses_fastest_first_hop(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+    aiohttp_session: aiohttp.ClientSession,
+) -> None:
+    """The proxy path honours the prober's latency observations."""
+    for node in two_node_config:
+        node.routing_strategy = RoutingStrategy.LOWEST_LATENCY
+    state_for.nodes["alpha"].latency_ms = 50.0
+    state_for.nodes["beta"].latency_ms = 12.0
+    body_b = {"jsonrpc": "2.0", "id": 1, "result": "fast"}
+    with aioresponses() as mocked:
+        mocked.post("https://beta.test/rpc", payload=body_b, status=200)
+        result, provider = await forward_with_failover(
+            state_for, two_node_config, aiohttp_session,
+            {"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber"},
+            request_timeout_seconds=10.0,
+        )
+    assert result == body_b
+    assert provider == "beta"
+
+
 # ---------------------------------------------------------------------------
 # (k) select_node raises NoHealthyNodeError when all nodes are unhealthy.
 # ---------------------------------------------------------------------------
@@ -499,3 +550,25 @@ async def test_proxy_handler_returns_503_on_no_healthy(
                 assert payload["error"] == "no healthy upstream"
             finally:
                 await client.close()
+
+
+async def test_make_app_manages_default_upstream_client(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+) -> None:
+    """``make_app`` works for POST / even when no upstream client is injected."""
+    body = {"jsonrpc": "2.0", "id": 1, "result": "0x5"}
+    with aioresponses(passthrough=["http://127.0.0.1"]) as mocked:
+        mocked.post("https://alpha.test/rpc", payload=body, status=200)
+        app = make_app(state_for, two_node_config, request_timeout_seconds=10.0)
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            resp = await client.post(
+                "/", json={"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber"}
+            )
+            assert resp.status == 200
+            assert await resp.json() == body
+        finally:
+            await client.close()

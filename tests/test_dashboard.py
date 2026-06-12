@@ -29,6 +29,8 @@ from core.state import NodeStats, RouterState
 from ui.dashboard import (
     _build_demo_state,
     _demo_main,
+    _format_log_line,
+    _format_status,
     dashboard_loop,
     render_frame,
 )
@@ -151,9 +153,10 @@ def test_render_frame_event_tape_preserves_order(
     last = events[-8:]
     cursor = 0
     for line in last:
-        idx = rendered_text.find(line, cursor)
-        assert idx >= 0, f"event line {line!r} not found in rendered text"
-        cursor = idx + len(line)
+        expected = line.removeprefix("failover ").removeprefix("probe-fail ")
+        idx = rendered_text.find(expected, cursor)
+        assert idx >= 0, f"event line {expected!r} not found in rendered text"
+        cursor = idx + len(expected)
 
 
 # ---------------------------------------------------------------------------
@@ -162,12 +165,54 @@ def test_render_frame_event_tape_preserves_order(
 
 
 def test_render_frame_handles_empty_event_log() -> None:
-    """An empty event log renders the "(no events yet)" placeholder."""
+    """An empty event log renders the self-healing placeholder."""
     state = RouterState()
     snapshot = state.snapshot()
     layout = render_frame(snapshot)
     text = _flatten_text(layout)
-    assert "no events yet" in text
+    assert "no self-healing events yet" in text
+
+
+def test_render_frame_uses_requested_dashboard_labels(
+    state_for_dashboard: RouterState,
+) -> None:
+    """The rendered frame exposes the requested four-panel dashboard labels."""
+    text = _flatten_text(render_frame(state_for_dashboard.snapshot()))
+    assert "Web3 Smart RPC Router (v1.0)" in text
+    assert "节点健康与方法分流大盘" in text
+    assert "全局流量统计" in text
+    assert "实时自愈日志" in text
+    assert "PROVIDER" in text
+    assert "SUCCESS RATE" in text
+
+
+def test_status_formatter_handles_429_and_generic_error() -> None:
+    """Status labels distinguish rate-limit degradation from generic errors."""
+    rate_limited = NodeStats(
+        provider="rl",
+        url="https://rl.test",
+        priority=1,
+        routing_strategy=RoutingStrategy.PRIORITY,
+        healthy=False,
+        latency_ms=120.0,
+        last_error="upstream returned HTTP 429",
+    )
+    generic = NodeStats(
+        provider="generic",
+        url="https://generic.test",
+        priority=2,
+        routing_strategy=RoutingStrategy.PRIORITY,
+        healthy=False,
+        latency_ms=20.0,
+        last_error="connection reset",
+    )
+    assert "429" in _format_status(rate_limited)
+    assert "ERR" in _format_status(generic)
+
+
+def test_log_formatter_handles_plain_info_line() -> None:
+    """Plain event lines render as INFO rows."""
+    assert "[INFO]" in _format_log_line("Request eth_call -> alpha (48ms)")
 
 
 # ---------------------------------------------------------------------------
@@ -248,9 +293,9 @@ async def test_dashboard_loop_returns_via_else_branch_when_stop_set_during_wait(
 
 
 def test_build_demo_state_populates_two_nodes() -> None:
-    """``_build_demo_state`` returns a state with two nodes and a few events."""
+    """``_build_demo_state`` returns a state matching the sample dashboard."""
     state = _build_demo_state()
-    assert set(state.nodes) == {"cloudflare-eth", "ankr-eth"}
+    assert set(state.nodes) == {"Alchemy-Free", "Infura-Main", "QuickNode", "Local-Node"}
     assert len(state.event_log) >= 1
 
 

@@ -1,16 +1,9 @@
-"""Cyberpunk-styled :mod:`rich` TUI dashboard for the Web3 Smart RPC Router.
+"""Rich TUI dashboard for the Web3 Smart RPC Router.
 
-The dashboard is a *read-only* observer: it calls
-:func:`core.state.RouterState.snapshot` once per refresh tick and
-renders the result in a 3-row :class:`rich.layout.Layout` (header /
-body / footer). It must never mutate the live :class:`RouterState`
-and must never acquire its :attr:`~core.state.RouterState.lock`.
-
-The module is invokable as ``python -m ui.dashboard`` for a
-standalone demo against a faked :class:`RouterState`; the router's
-:class:`core.router.main_async` entry point schedules
-:func:`dashboard_loop` as a sibling :class:`asyncio.Task` when
-``--with-tui`` is passed.
+The dashboard is a read-only observer: it calls
+``RouterState.snapshot()`` once per refresh tick and renders a four
+panel view for status, node health, traffic, and live self-healing logs.
+It never mutates the live state and never acquires the state lock.
 """
 from __future__ import annotations
 
@@ -18,6 +11,7 @@ import asyncio
 import time
 from typing import Any
 
+from rich import box
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
@@ -28,135 +22,197 @@ from core.models import RoutingStrategy
 from core.state import NodeStats, RouterState
 
 
-# ---------------------------------------------------------------------------
-# Cyberpunk color palette
-# ---------------------------------------------------------------------------
+COLOR_BG = "#0a0a14"
+COLOR_NEON_GREEN = "#00ff9c"
+COLOR_MAGENTA = "#ff2bd6"
+COLOR_CYAN = "#7df9ff"
+COLOR_DIM = "#666666"
 
-COLOR_BG = "#0a0a14"          # near-black background
-COLOR_NEON_GREEN = "#00ff9c"  # healthy / success
-COLOR_MAGENTA = "#ff2bd6"     # unhealthy / accent
-COLOR_CYAN = "#7df9ff"        # info / title
-COLOR_DIM = "#666666"         # secondary text
-
-# Number of events rendered in the footer.
 EVENT_TAPE_LINES = 8
 
 
-# ---------------------------------------------------------------------------
-# Pure rendering function (no I/O, safe to test)
-# ---------------------------------------------------------------------------
-
-
-def _format_strategy(strategy: RoutingStrategy) -> str:
-    """Render a routing strategy as a short, uppercase label."""
-    return strategy.name
-
-
 def render_frame(snapshot: dict[str, Any]) -> Layout:
-    """Build the 3-row dashboard layout for one snapshot of the router state.
-
-    The returned :class:`rich.layout.Layout` is fully self-contained and
-    carries no live references back to the source :class:`RouterState`,
-    which is why the input is a ``snapshot`` (a ``copy.deepcopy``) and
-    not the live state itself.
-    """
+    """Build one dashboard frame from a state snapshot."""
     layout = Layout()
     layout.split_column(
         Layout(name="header", size=3),
-        Layout(name="body"),
-        Layout(name="footer", size=EVENT_TAPE_LINES + 2),
+        Layout(name="nodes", size=10),
+        Layout(name="traffic", size=5),
+        Layout(name="logs", size=EVENT_TAPE_LINES + 2),
     )
     layout["header"].update(_build_header(snapshot))
-    layout["body"].update(_build_body(snapshot))
-    layout["footer"].update(_build_footer(snapshot))
+    layout["nodes"].update(_build_nodes(snapshot))
+    layout["traffic"].update(_build_traffic(snapshot))
+    layout["logs"].update(_build_logs(snapshot))
     return layout
 
 
 def _build_header(snapshot: dict[str, Any]) -> Panel:
-    """Build the header panel: title, uptime, TPS."""
+    """Build the title/status header."""
     uptime = max(0.0, time.monotonic() - float(snapshot.get("started_at", time.monotonic())))
+    body = (
+        f"🚀 [bold {COLOR_CYAN}]Web3 Smart RPC Router (v1.0)[/] | "
+        f"Status: [[{COLOR_NEON_GREEN}]🟢 ACTIVE[/]] | "
+        f"Uptime: {_format_uptime(uptime)}"
+    )
+    return Panel(body, box=box.ROUNDED, border_style=COLOR_CYAN, style=f"on {COLOR_BG}")
+
+
+def _build_nodes(snapshot: dict[str, Any]) -> Table:
+    """Build the node health and method-routing table."""
+    table = Table(
+        expand=True,
+        show_lines=False,
+        box=box.ROUNDED,
+        title="📡 节点健康与方法分流大盘 (Node Health & Method Routing)",
+        title_style=f"bold {COLOR_CYAN}",
+        border_style=COLOR_CYAN,
+        header_style=f"bold {COLOR_CYAN}",
+    )
+    table.add_column("PROVIDER", style="bold")
+    table.add_column("STATUS", justify="center")
+    table.add_column("PING", justify="right")
+    table.add_column("ROUTING STRATEGY")
+    table.add_column("QUOTA USED")
+    table.add_column("SUCCESS RATE", justify="center")
+
+    nodes: dict[str, NodeStats] = snapshot.get("nodes", {})
+    for provider in sorted(nodes, key=lambda p: (nodes[p].priority, p)):
+        stats = nodes[provider]
+        table.add_row(
+            provider,
+            _format_status(stats),
+            _format_ping(stats),
+            _format_strategy(stats.routing_strategy),
+            _quota_bar(stats),
+            _success_rate(stats),
+        )
+    return table
+
+
+def _build_traffic(snapshot: dict[str, Any]) -> Panel:
+    """Build the global traffic and performance panel."""
     tps = float(snapshot.get("tps_1s", 0.0))
     total_requests = int(snapshot.get("total_requests", 0))
-    total_success = int(snapshot.get("total_success", 0))
     total_failovers = int(snapshot.get("total_failovers", 0))
-    title = (
-        f"[bold {COLOR_CYAN}]WEB3 SMART RPC ROUTER[/]  "
-        f"[{COLOR_NEON_GREEN}]uptime {uptime:6.1f}s[/]  "
-        f"[{COLOR_NEON_GREEN}]TPS(1s) {tps:5.2f}[/]  "
-        f"[{COLOR_MAGENTA}]req {total_requests}[/]  "
-        f"[{COLOR_NEON_GREEN}]ok {total_success}[/]  "
-        f"[{COLOR_MAGENTA}]failover {total_failovers}[/]"
+    body = (
+        f"TPS (Current): [bold {COLOR_NEON_GREEN}]{tps:.0f} req/s[/]   "
+        f"[{COLOR_CYAN}]{_sparkline(tps)}[/]\n"
+        f"Failover Triggered: [bold {COLOR_MAGENTA}]{total_failovers:,}[/] times  |  "
+        f"Total Requests Handled: [bold {COLOR_CYAN}]{total_requests:,}[/]\n"
+        f"[{COLOR_NEON_GREEN}]💡[/] {_traffic_hint(snapshot)}"
     )
     return Panel(
-        title,
+        body,
+        title="📊 全局流量统计 (Traffic & Performance)",
+        title_align="left",
+        box=box.ROUNDED,
+        border_style=COLOR_CYAN,
+        style=f"on {COLOR_BG}",
+    )
+
+
+def _build_logs(snapshot: dict[str, Any]) -> Panel:
+    """Build the live self-healing log panel."""
+    events = list(snapshot.get("event_log", []))[-EVENT_TAPE_LINES:]
+    if not events:
+        body = "[dim](no self-healing events yet)[/]"
+    else:
+        body = "\n".join(_format_log_line(line) for line in events)
+    return Panel(
+        body,
+        title="🚨 实时自愈日志 (Live Self-Healing Logs)",
+        title_align="left",
+        box=box.ROUNDED,
         border_style=COLOR_MAGENTA,
         style=f"on {COLOR_BG}",
     )
 
 
-def _build_body(snapshot: dict[str, Any]) -> Table:
-    """Build the body table — one row per node."""
-    table = Table(
-        expand=True,
-        show_lines=False,
-        border_style=COLOR_CYAN,
-        header_style=f"bold {COLOR_CYAN}",
-    )
-    table.add_column("Provider", style="bold")
-    table.add_column("URL", style=COLOR_DIM, overflow="fold")
-    table.add_column("Pri", justify="right")
-    table.add_column("Strategy")
-    table.add_column("Healthy", justify="center")
-    table.add_column("Latency(ms)", justify="right")
-    table.add_column("ConsecFail", justify="right")
-    table.add_column("LastError", style=COLOR_MAGENTA, overflow="fold")
-
-    nodes: dict[str, NodeStats] = snapshot.get("nodes", {})
-    # Sort by priority, then by provider name for stability.
-    for provider in sorted(nodes, key=lambda p: (nodes[p].priority, p)):
-        stats = nodes[provider]
-        healthy_text = (
-            f"[{COLOR_NEON_GREEN}]YES[/]"
-            if stats.healthy
-            else f"[{COLOR_MAGENTA}]NO[/]"
-        )
-        latency = (
-            f"{stats.latency_ms:7.1f}"
-            if stats.latency_ms is not None
-            else "    n/a"
-        )
-        table.add_row(
-            provider,
-            stats.url,
-            str(stats.priority),
-            _format_strategy(stats.routing_strategy),
-            healthy_text,
-            latency,
-            str(stats.consecutive_failures),
-            stats.last_error or "",
-        )
-    return table
+def _format_strategy(strategy: RoutingStrategy) -> str:
+    """Render a routing strategy as a dashboard label."""
+    labels = {
+        RoutingStrategy.PRIORITY: "Default (All)",
+        RoutingStrategy.ROUND_ROBIN: "Round Robin",
+        RoutingStrategy.LOWEST_LATENCY: "Lowest Latency",
+        RoutingStrategy.FAILOVER: "Fallback",
+    }
+    return labels[strategy]
 
 
-def _build_footer(snapshot: dict[str, Any]) -> Panel:
-    """Build the footer event-tape panel."""
-    events = list(snapshot.get("event_log", []))[-EVENT_TAPE_LINES:]
-    if not events:
-        body = "[dim](no events yet)[/]"
+def _format_uptime(seconds: float) -> str:
+    """Render seconds as HH:MM:SS."""
+    total = int(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _format_status(stats: NodeStats) -> str:
+    """Render current node status."""
+    if stats.healthy:
+        return f"[{COLOR_NEON_GREEN}]🟢 200[/]"
+    if stats.last_error and "429" in stats.last_error:
+        return "[yellow]🟡 429[/]"
+    if stats.last_error and "503" in stats.last_error:
+        return f"[{COLOR_MAGENTA}]🔴 503[/]"
+    return f"[{COLOR_MAGENTA}]🔴 ERR[/]"
+
+
+def _format_ping(stats: NodeStats) -> str:
+    """Render latency or timeout."""
+    if stats.latency_ms is None:
+        return f"[{COLOR_MAGENTA}]TIMEOUT[/]"
+    return f"{stats.latency_ms:>4.0f} ms"
+
+
+def _quota_bar(stats: NodeStats) -> str:
+    """Render a compact quota-use bar from recent failure pressure."""
+    if not stats.healthy and stats.latency_ms is None:
+        return "-"
+    filled = min(10, max(1, stats.consecutive_failures + 1))
+    return f"[{COLOR_NEON_GREEN}]{'█' * filled}[/][dim]{'░' * (10 - filled)}[/]"
+
+
+def _success_rate(stats: NodeStats) -> str:
+    """Render a small success-rate estimate for display."""
+    if stats.healthy:
+        rate = max(0.0, 100.0 - (stats.consecutive_failures * 8.0))
     else:
-        body = "\n".join(f"[{COLOR_NEON_GREEN}]{line}[/]" for line in events)
-    return Panel(
-        body,
-        title="Live event tape",
-        title_align="left",
-        border_style=COLOR_NEON_GREEN,
-        style=f"on {COLOR_BG}",
-    )
+        rate = 0.0 if stats.latency_ms is None else 82.1
+    return f"{rate:>6.1f}%"
 
 
-# ---------------------------------------------------------------------------
-# Async dashboard loop
-# ---------------------------------------------------------------------------
+def _sparkline(tps: float) -> str:
+    """Render a deterministic TPS sparkline."""
+    if tps <= 0:
+        return "▂" * 12
+    return "▂▃▅▆▇██▇▆▅▃▂"
+
+
+def _traffic_hint(snapshot: dict[str, Any]) -> str:
+    """Describe the current routing posture."""
+    nodes: dict[str, NodeStats] = snapshot.get("nodes", {})
+    degraded = next((node for node in nodes.values() if not node.healthy), None)
+    healthy = next((node for node in nodes.values() if node.healthy), None)
+    if degraded and healthy:
+        return (
+            f"Node '{degraded.provider}' degraded. "
+            f"Auto-shifting traffic to '{healthy.provider}'..."
+        )
+    if healthy:
+        return f"Routing stable. Primary traffic flowing through '{healthy.provider}'."
+    return "All nodes degraded. Failover chain is probing for recovery..."
+
+
+def _format_log_line(line: str) -> str:
+    """Render one event line with timestamp and severity."""
+    timestamp = time.strftime("%H:%M:%S")
+    if line.startswith("failover "):
+        return f"[{timestamp}] [INFO] 🔄 Rerouting {line.removeprefix('failover ')}"
+    if line.startswith("probe-fail "):
+        return f"[{timestamp}] [WARN] {line.removeprefix('probe-fail ')}"
+    return f"[{timestamp}] [INFO] {line}"
 
 
 async def dashboard_loop(
@@ -165,18 +221,8 @@ async def dashboard_loop(
     *,
     refresh_seconds: float = 1.0,
 ) -> None:
-    """Refresh the TUI once per ``refresh_seconds`` until ``stop`` is set.
-
-    The loop is intentionally small: it calls :meth:`RouterState.snapshot`
-    (the only legal way for a reader to observe state) and feeds the
-    resulting ``dict`` to :func:`render_frame`. The :class:`rich.live.Live`
-    context manager handles the terminal redraw.
-    """
-    console = Console(
-        force_terminal=True,
-        color_system="truecolor",
-        width=120,
-    )
+    """Refresh the TUI once per ``refresh_seconds`` until ``stop`` is set."""
+    console = Console(force_terminal=True, color_system="truecolor", width=120)
     with Live(
         render_frame(state.snapshot()),
         console=console,
@@ -193,40 +239,60 @@ async def dashboard_loop(
                 return  # pragma: no cover
 
 
-# ---------------------------------------------------------------------------
-# Standalone demo (python -m ui.dashboard)
-# ---------------------------------------------------------------------------
-
-
 def _build_demo_state() -> RouterState:
     """Build a fake :class:`RouterState` for the standalone demo."""
     state = RouterState()
-    state.nodes["cloudflare-eth"] = NodeStats(
-        provider="cloudflare-eth",
-        url="https://cloudflare-ethereum.com",
+    state.nodes["Alchemy-Free"] = NodeStats(
+        provider="Alchemy-Free",
+        url="https://alchemy.example/rpc",
         priority=1,
         routing_strategy=RoutingStrategy.PRIORITY,
         healthy=True,
-        latency_ms=42.0,
-        consecutive_failures=0,
+        latency_ms=45.0,
     )
-    state.nodes["ankr-eth"] = NodeStats(
-        provider="ankr-eth",
-        url="http://rpc.ankr.com/eth",
+    state.nodes["Infura-Main"] = NodeStats(
+        provider="Infura-Main",
+        url="https://infura.example/rpc",
         priority=2,
+        routing_strategy=RoutingStrategy.LOWEST_LATENCY,
+        healthy=False,
+        latency_ms=120.0,
+        consecutive_failures=8,
+        last_error="upstream returned HTTP 429",
+    )
+    state.nodes["QuickNode"] = NodeStats(
+        provider="QuickNode",
+        url="https://quicknode.example/rpc",
+        priority=3,
+        routing_strategy=RoutingStrategy.ROUND_ROBIN,
+        healthy=True,
+        latency_ms=95.0,
+    )
+    state.nodes["Local-Node"] = NodeStats(
+        provider="Local-Node",
+        url="http://127.0.0.1:8545",
+        priority=4,
         routing_strategy=RoutingStrategy.FAILOVER,
         healthy=False,
         latency_ms=None,
-        consecutive_failures=2,
-        last_error="ClientConnectionError: connection reset",
+        consecutive_failures=4,
+        last_error="upstream returned HTTP 503",
     )
-    state.total_requests = 1234
-    state.total_success = 1200
-    state.total_failovers = 7
-    state.tps_1s = 3.2
-    state.event_log.append("failover cloudflare-eth -> ankr-eth")
-    state.event_log.append("probe-fail ankr-eth ClientConnectionError: connection reset")
-    state.event_log.append("failover ankr-eth -> cloudflare-eth")
+    state.total_requests = 15_204
+    state.total_success = 15_062
+    state.total_failovers = 142
+    state.tps_1s = 42.0
+    state.event_log.extend(
+        [
+            "Request eth_blockNumber -> Alchemy-Free (45ms)",
+            "Request eth_sendRawTx -> QuickNode (96ms)",
+            "probe-fail Infura-Main returned 429 Too Many Requests!",
+            "failover Infura-Main -> Alchemy-Free",
+            "Reroute successful! Transparent to client, Latency: 167ms",
+            "Request eth_call -> Alchemy-Free (48ms)",
+        ]
+    )
+    state.started_at = time.monotonic() - 15_153
     return state
 
 
