@@ -99,12 +99,12 @@ class RouterConfig(BaseModel):
     @model_validator(mode="after")
     def _check_unique_provider_and_priority(self) -> RouterConfig:
         """Enforce uniqueness of provider labels and priorities across nodes."""
-        providers = [node.provider for node in self.rpc_nodes]
-        priorities = [node.priority for node in self.rpc_nodes]
-        if len(set(providers)) != len(providers):
-            raise ValueError("provider values must be unique across rpc_nodes")
-        if len(set(priorities)) != len(priorities):
-            raise ValueError("priority values must be unique across rpc_nodes")
+        for field_name in ("provider", "priority"):
+            values = [getattr(node, field_name) for node in self.rpc_nodes]
+            if len(set(values)) != len(values):
+                raise ValueError(
+                    f"{field_name} values must be unique across rpc_nodes"
+                )
         return self
 
 
