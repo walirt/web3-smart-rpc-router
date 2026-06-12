@@ -225,3 +225,69 @@ async def test_prober_loop_runs_multiple_ticks(
     assert state_for.nodes["beta"].last_probed_at is not None
     assert state_for.nodes["alpha"].healthy is True
     assert state_for.nodes["beta"].healthy is True
+
+
+async def test_prober_loop_tolerates_unexpected_tick_exception(
+    monkeypatch: pytest.MonkeyPatch,
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+    aiohttp_session: aiohttp.ClientSession,
+) -> None:
+    """An unexpected exception in one tick is logged and the loop keeps running."""
+    calls = {"count": 0}
+
+    async def broken_probe(*args: object, **kwargs: object) -> None:
+        calls["count"] += 1
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("core.prober.probe_once", broken_probe)
+    stop = asyncio.Event()
+    task = asyncio.create_task(
+        prober_loop(
+            state_for, two_node_config, aiohttp_session, stop,
+            probe_interval_seconds=0.05,
+        )
+    )
+    # Two intervals' worth of opportunity for the broken tick to fire.
+    await asyncio.sleep(0.12)
+    stop.set()
+    await asyncio.wait_for(task, timeout=1.0)
+    assert calls["count"] >= 2  # the loop kept going after each exception
+
+
+
+
+async def test_prober_loop_returns_immediately_when_stop_already_set(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+    aiohttp_session: aiohttp.ClientSession,
+) -> None:
+    """A pre-set ``stop`` event causes the loop to return without probing."""
+    stop = asyncio.Event()
+    stop.set()
+    await asyncio.wait_for(
+        prober_loop(
+            state_for, two_node_config, aiohttp_session, stop,
+            probe_interval_seconds=0.05,
+        ),
+        timeout=1.0,
+    )
+    assert state_for.nodes["alpha"].last_probed_at is None
+
+
+async def test_prober_loop_returns_immediately_when_stop_already_set(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+    aiohttp_session: aiohttp.ClientSession,
+) -> None:
+    """A pre-set ``stop`` event causes the loop to return without probing."""
+    stop = asyncio.Event()
+    stop.set()
+    await asyncio.wait_for(
+        prober_loop(
+            state_for, two_node_config, aiohttp_session, stop,
+            probe_interval_seconds=0.05,
+        ),
+        timeout=1.0,
+    )
+    assert state_for.nodes["alpha"].last_probed_at is None

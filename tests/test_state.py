@@ -12,6 +12,7 @@ and the type of the underlying ``asyncio.Lock``.
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
@@ -203,6 +204,25 @@ async def test_tps_1s_math() -> None:
     assert state.total_failovers == 1
     assert state.total_success == 3
     assert state.total_requests == 4
+
+
+async def test_tps_1s_drops_stale_timestamps() -> None:
+    """Timestamps older than 1s are pruned from the rolling window."""
+    state = RouterState()
+    # Pre-populate with three obviously-stale timestamps. The very first
+    # ``record_request`` call will pop all of them (they are far older
+    # than ``now - 1.0``) and append the new ``now``.
+    state._request_timestamps.append(0.0)
+    state._request_timestamps.append(0.0)
+    state._request_timestamps.append(0.0)
+    await state.record_request(success=True)
+    # All three stale entries are pruned; the new request is the only
+    # one inside the 1s window.
+    assert state.tps_1s == 1.0
+    # Add a few more requests in the same instant; no further pruning.
+    await state.record_request(success=True)
+    await state.record_request(success=True)
+    assert state.tps_1s == 3.0
 
 
 # ---------------------------------------------------------------------------

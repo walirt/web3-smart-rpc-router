@@ -30,7 +30,11 @@ from aioresponses import aioresponses
 from core.models import GlobalSettings, RoutingStrategy, RpcNode
 from core.router import (
     NoHealthyNodeError,
+    ProxyHandler,
+    _backoff_delay,
     forward_with_failover,
+    main,
+    main_async,
     make_app,
     select_node,
 )
@@ -249,6 +253,166 @@ async def test_priority_picks_highest_priority_when_healthy(
     # alpha has priority=1 (highest), beta has priority=2.
     chosen = select_node(state_for, list(state_for.nodes.values()))
     assert chosen.provider == "alpha"
+
+
+# ---------------------------------------------------------------------------
+# Empty cfg: select_node and forward_with_failover both raise.
+# ---------------------------------------------------------------------------
+
+
+def test_select_node_raises_on_empty_cfg() -> None:
+    """``select_node`` raises :class:`NoHealthyNodeError` on an empty cfg."""
+    state = RouterState()
+    with pytest.raises(NoHealthyNodeError):
+        select_node(state, [])
+
+
+async def test_forward_with_failover_raises_on_empty_cfg(
+    state_for: RouterState,
+    aiohttp_session: aiohttp.ClientSession,
+) -> None:
+    """``forward_with_failover`` records a failure and raises on an empty cfg."""
+    with pytest.raises(NoHealthyNodeError):
+        await forward_with_failover(
+            state_for, [], aiohttp_session,
+            {"jsonrpc": "2.0", "id": 1, "method": "x"},
+            request_timeout_seconds=10.0,
+        )
+    assert state_for.total_failovers == 1
+    assert state_for.total_success == 0
+
+
+# ---------------------------------------------------------------------------
+# LOWEST_LATENCY: fall back to priority order when no latency is known.
+# ---------------------------------------------------------------------------
+
+
+def test_select_node_lowest_latency_falls_back_to_priority(
+    state_for: RouterState,
+) -> None:
+    """Without any latency data, ``lowest_latency`` picks the highest-priority node."""
+    for n in state_for.nodes.values():
+        n.routing_strategy = RoutingStrategy.LOWEST_LATENCY
+    # No latency data set; expect alpha (priority=1) to win by fallback.
+    chosen = select_node(state_for, list(state_for.nodes.values()))
+    assert chosen.provider == "alpha"
+
+
+# ---------------------------------------------------------------------------
+# _backoff_delay: returns 0.0 for attempt_index <= 0.
+# ---------------------------------------------------------------------------
+
+
+def test_backoff_delay_zero_for_first_attempt() -> None:
+    """``_backoff_delay(0, ...)`` and ``_backoff_delay(-1, ...)`` return 0.0."""
+    assert _backoff_delay(0, base=2.5, cap=40.0) == 0.0
+    assert _backoff_delay(-1, base=2.5, cap=40.0) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# ProxyHandler: 400 on non-JSON body.
+# ---------------------------------------------------------------------------
+
+
+async def test_proxy_handler_returns_400_on_non_json_body(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+) -> None:
+    """A request whose body is not JSON returns ``400 invalid jsonrpc``."""
+    cfg: list[RpcNode] = two_node_config
+    app = make_app(state_for, cfg, request_timeout_seconds=10.0)
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+    try:
+        resp = await client.post(
+            "/", data=b"not-json", headers={"Content-Type": "application/json"}
+        )
+        assert resp.status == 400
+        payload = await resp.json()
+        assert payload["error"] == "invalid jsonrpc"
+    finally:
+        await client.close()
+
+
+# ---------------------------------------------------------------------------
+# Empty cfg: select_node and forward_with_failover both raise.
+# ---------------------------------------------------------------------------
+
+
+def test_select_node_raises_on_empty_cfg() -> None:
+    """``select_node`` raises :class:`NoHealthyNodeError` on an empty cfg."""
+    state = RouterState()
+    with pytest.raises(NoHealthyNodeError):
+        select_node(state, [])
+
+
+async def test_forward_with_failover_raises_on_empty_cfg(
+    state_for: RouterState,
+    aiohttp_session: aiohttp.ClientSession,
+) -> None:
+    """``forward_with_failover`` records a failure and raises on an empty cfg."""
+    with pytest.raises(NoHealthyNodeError):
+        await forward_with_failover(
+            state_for, [], aiohttp_session,
+            {"jsonrpc": "2.0", "id": 1, "method": "x"},
+            request_timeout_seconds=10.0,
+        )
+    assert state_for.total_failovers == 1
+    assert state_for.total_success == 0
+
+
+# ---------------------------------------------------------------------------
+# LOWEST_LATENCY: fall back to priority order when no latency is known.
+# ---------------------------------------------------------------------------
+
+
+def test_select_node_lowest_latency_falls_back_to_priority(
+    state_for: RouterState,
+) -> None:
+    """Without any latency data, ``lowest_latency`` picks the highest-priority node."""
+    for n in state_for.nodes.values():
+        n.routing_strategy = RoutingStrategy.LOWEST_LATENCY
+    # No latency data set; expect alpha (priority=1) to win by fallback.
+    chosen = select_node(state_for, list(state_for.nodes.values()))
+    assert chosen.provider == "alpha"
+
+
+# ---------------------------------------------------------------------------
+# _backoff_delay: returns 0.0 for attempt_index <= 0.
+# ---------------------------------------------------------------------------
+
+
+def test_backoff_delay_zero_for_first_attempt() -> None:
+    """``_backoff_delay(0, ...)`` and ``_backoff_delay(-1, ...)`` return 0.0."""
+    assert _backoff_delay(0, base=2.5, cap=40.0) == 0.0
+    assert _backoff_delay(-1, base=2.5, cap=40.0) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# ProxyHandler: 400 on non-JSON body.
+# ---------------------------------------------------------------------------
+
+
+async def test_proxy_handler_returns_400_on_non_json_body(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+) -> None:
+    """A request whose body is not JSON returns ``400 invalid jsonrpc``."""
+    cfg: list[RpcNode] = two_node_config
+    app = make_app(state_for, cfg, request_timeout_seconds=10.0)
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+    try:
+        resp = await client.post(
+            "/", data=b"not-json", headers={"Content-Type": "application/json"}
+        )
+        assert resp.status == 400
+        payload = await resp.json()
+        assert payload["error"] == "invalid jsonrpc"
+    finally:
+        await client.close()
 
 
 # ---------------------------------------------------------------------------

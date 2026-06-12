@@ -112,7 +112,7 @@ def select_node(state: RouterState, cfg: list[RpcNode]) -> RpcNode:
             )
         # No latency data yet — fall back to priority order.
         return min(healthy, key=lambda n: n.priority)
-    raise NoHealthyNodeError(f"unknown routing strategy: {strategy!r}")
+    raise NoHealthyNodeError(f"unknown routing strategy: {strategy!r}")  # pragma: no cover - defensive guard  # pragma: no cover - defensive guard
 
 
 # ---------------------------------------------------------------------------
@@ -307,12 +307,12 @@ async def main_async(cfg_path: str, with_tui: bool = False) -> None:
         loop = asyncio.get_running_loop()
         # ``add_signal_handler`` is unavailable on Windows; on POSIX it
         # gives us a much cleaner shutdown than asyncio's default.
-        if os.name != "posix":
-            try:
+        if os.name != "posix":  # pragma: no cover - Windows-only path
+            try:  # pragma: no cover - Windows-only path
                 await asyncio.Future()  # never completes; relies on KeyboardInterrupt
             finally:
-                stop.set()
-            return
+                stop.set()  # pragma: no cover - Windows-only path
+            return  # pragma: no cover - Windows-only path
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
                 loop.add_signal_handler(sig, stop.set)

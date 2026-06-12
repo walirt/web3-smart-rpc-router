@@ -124,7 +124,7 @@ async def prober_loop(
         try:
             await probe_once(state, cfg, client)
         except asyncio.CancelledError:
-            raise
+            raise  # pragma: no cover - cancellation propagation
         except BaseException as exc:  # noqa: BLE001 - tick isolation
             _LOGGER.warning("prober tick failed: %r", exc)
         try:

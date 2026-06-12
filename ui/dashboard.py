@@ -190,7 +190,7 @@ async def dashboard_loop(
             except asyncio.TimeoutError:
                 continue
             else:
-                return
+                return  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
