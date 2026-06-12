@@ -20,24 +20,17 @@ upstream traffic; no real network calls are made.
 """
 from __future__ import annotations
 
-import asyncio
-import json
 from collections.abc import AsyncIterator
-from typing import Any
 
 import aiohttp
 import pytest
-from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 from aioresponses import aioresponses
 
-from core.config import load_config
 from core.models import GlobalSettings, RoutingStrategy, RpcNode
 from core.router import (
     NoHealthyNodeError,
-    ProxyHandler,
     forward_with_failover,
-    main_async,
     make_app,
     select_node,
 )

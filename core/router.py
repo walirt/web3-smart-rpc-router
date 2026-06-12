@@ -323,7 +323,10 @@ async def main_async(cfg_path: str, with_tui: bool = False) -> None:
     timeout = aiohttp.ClientTimeout(total=cfg.global_.request_timeout_seconds)
     async with aiohttp.ClientSession(timeout=timeout) as client:
         prober_task = asyncio.create_task(
-            prober_loop(state, cfg, client, stop),
+            prober_loop(
+                state, cfg.rpc_nodes, client, stop,
+                probe_interval_seconds=cfg.global_.probe_interval_seconds,
+            ),
             name="prober-loop",
         )
         # Re-bind the upstream client on the app so the handler can
