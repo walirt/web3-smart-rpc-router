@@ -32,6 +32,7 @@ def valid_global_dict() -> dict[str, Any]:
         "listen_port": 8545,
         "probe_interval_seconds": 5.0,
         "request_timeout_seconds": 10.0,
+        "routing_strategy": "round_robin",
         "max_retries": 3,
     }
 
@@ -42,14 +43,11 @@ def valid_node_dict() -> dict[str, Any]:
 
     All optional fields (``weight``, ``headers``) are pinned to their
     documented defaults so tests can compare against an explicit
-    "nothing was added" baseline. The ``routing_strategy`` uses
-    ``round_robin`` because it is the simplest of the four locked
-    strategies; tests that need ``priority`` simply override the field.
+    "nothing was added" baseline.
     """
     return {
         "provider": "test-provider",
         "url": "https://example.com",
-        "routing_strategy": "round_robin",
         "priority": 1,
         "weight": 1,
         "headers": {},

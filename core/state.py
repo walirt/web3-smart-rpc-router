@@ -100,7 +100,11 @@ class RouterState:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_config(cls, rpc_nodes: Iterable[RpcNode]) -> "RouterState":
+    def from_config(
+        cls,
+        rpc_nodes: Iterable[RpcNode],
+        routing_strategy: RoutingStrategy = RoutingStrategy.PRIORITY,
+    ) -> "RouterState":
         """Build a fresh :class:`RouterState` seeded from ``rpc_nodes``."""
         state = cls()
         for node in rpc_nodes:
@@ -108,7 +112,7 @@ class RouterState:
                 provider=node.provider,
                 url=node.url,
                 priority=node.priority,
-                routing_strategy=node.routing_strategy,
+                routing_strategy=routing_strategy,
             )
         return state
 

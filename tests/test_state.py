@@ -31,6 +31,7 @@ def global_settings() -> GlobalSettings:
         listen_port=8545,
         probe_interval_seconds=5.0,
         request_timeout_seconds=10.0,
+        routing_strategy=RoutingStrategy.PRIORITY,
         max_retries=3,
     )
 
@@ -42,7 +43,6 @@ def two_node_config(global_settings: GlobalSettings):
         RpcNode(
             provider="alpha",
             url="https://alpha.example.com",
-            routing_strategy=RoutingStrategy.PRIORITY,
             priority=1,
             weight=1,
             headers={},
@@ -50,7 +50,6 @@ def two_node_config(global_settings: GlobalSettings):
         RpcNode(
             provider="beta",
             url="https://beta.example.com",
-            routing_strategy=RoutingStrategy.ROUND_ROBIN,
             priority=2,
             weight=1,
             headers={},
@@ -231,12 +230,12 @@ async def test_tps_1s_drops_stale_timestamps() -> None:
 
 async def test_from_config_seeds_nodes(global_settings, two_node_config) -> None:
     """``from_config`` seeds ``nodes`` keyed by provider with default stats."""
-    state = RouterState.from_config(two_node_config)
+    state = RouterState.from_config(two_node_config, global_settings.routing_strategy)
     assert set(state.nodes) == {"alpha", "beta"}
     assert state.nodes["alpha"].provider == "alpha"
     assert state.nodes["alpha"].url == "https://alpha.example.com"
     assert state.nodes["alpha"].priority == 1
-    assert state.nodes["alpha"].routing_strategy is RoutingStrategy.PRIORITY
+    assert state.nodes["alpha"].routing_strategy is global_settings.routing_strategy
     assert state.nodes["alpha"].healthy is True
     # Counter / log fields stay at their zero defaults.
     assert state.total_requests == 0

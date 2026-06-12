@@ -65,7 +65,11 @@ def _latency_sort_key(state: RouterState, node: RpcNode) -> tuple[bool, float, i
     return (latency is None, latency if latency is not None else float("inf"), node.priority)
 
 
-def _attempt_order(state: RouterState, cfg: list[RpcNode]) -> list[RpcNode]:
+def _attempt_order(
+    state: RouterState,
+    cfg: list[RpcNode],
+    routing_strategy: RoutingStrategy,
+) -> list[RpcNode]:
     """Return the ordered failover chain for one proxied request.
 
     The first hop honours the configured routing strategy. Subsequent
@@ -77,25 +81,26 @@ def _attempt_order(state: RouterState, cfg: list[RpcNode]) -> list[RpcNode]:
     if not cfg:
         return []
     healthy = _healthy_pool(state, cfg)
-    strategy = cfg[0].routing_strategy
     if not healthy:
         return sorted(cfg, key=lambda n: n.priority)
-    if strategy is RoutingStrategy.ROUND_ROBIN:
-        first = select_node(state, cfg)
+    if routing_strategy is RoutingStrategy.ROUND_ROBIN:
+        first = select_node(state, cfg, routing_strategy)
         rest = [node for node in sorted(healthy, key=lambda n: n.priority) if node != first]
         return [first, *rest]
-    if strategy is RoutingStrategy.LOWEST_LATENCY:
+    if routing_strategy is RoutingStrategy.LOWEST_LATENCY:
         return sorted(healthy, key=lambda n: _latency_sort_key(state, n))
     return sorted(healthy, key=lambda n: n.priority)
 
 
-def select_node(state: RouterState, cfg: list[RpcNode]) -> RpcNode:
+def select_node(
+    state: RouterState,
+    cfg: list[RpcNode],
+    routing_strategy: RoutingStrategy = RoutingStrategy.PRIORITY,
+) -> RpcNode:
     """Pick one upstream node according to the active :class:`RoutingStrategy`.
 
-    The active strategy is the one declared on the first node in
-    ``cfg``; mixing strategies across nodes in a single config is
-    permitted by the schema but the router only ever honours one. When
-    the active strategy is :attr:`RoutingStrategy.ROUND_ROBIN` the
+    The active strategy is declared once in ``global.routing_strategy``.
+    When the active strategy is :attr:`RoutingStrategy.ROUND_ROBIN` the
     :attr:`RouterState.round_robin_index` is incremented synchronously;
     asyncio is single-threaded so a synchronous mutation here is
     race-free with respect to other coroutines.
@@ -107,20 +112,19 @@ def select_node(state: RouterState, cfg: list[RpcNode]) -> RpcNode:
     """
     if not cfg:
         raise NoHealthyNodeError("no nodes configured")
-    strategy = cfg[0].routing_strategy
     healthy = _healthy_pool(state, cfg)
     if not healthy:
         raise NoHealthyNodeError("no healthy nodes available")
-    if strategy is RoutingStrategy.PRIORITY:
+    if routing_strategy is RoutingStrategy.PRIORITY:
         return min(healthy, key=lambda n: n.priority)
-    if strategy is RoutingStrategy.FAILOVER:
+    if routing_strategy is RoutingStrategy.FAILOVER:
         return min(healthy, key=lambda n: n.priority)
-    if strategy is RoutingStrategy.ROUND_ROBIN:
+    if routing_strategy is RoutingStrategy.ROUND_ROBIN:
         ordered = sorted(healthy, key=lambda n: n.priority)
         chosen = ordered[state.round_robin_index % len(ordered)]
         state.round_robin_index += 1
         return chosen
-    if strategy is RoutingStrategy.LOWEST_LATENCY:
+    if routing_strategy is RoutingStrategy.LOWEST_LATENCY:
         with_latency = [
             n for n in healthy if state.nodes[n.provider].latency_ms is not None
         ]
@@ -131,7 +135,7 @@ def select_node(state: RouterState, cfg: list[RpcNode]) -> RpcNode:
             )
         # No latency data yet — fall back to priority order.
         return min(healthy, key=lambda n: n.priority)
-    raise NoHealthyNodeError(f"unknown routing strategy: {strategy!r}")  # pragma: no cover - defensive guard  # pragma: no cover - defensive guard
+    raise NoHealthyNodeError(f"unknown routing strategy: {routing_strategy!r}")  # pragma: no cover - defensive guard
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +163,7 @@ async def forward_with_failover(
     client: aiohttp.ClientSession,
     payload: dict[str, Any],
     *,
+    routing_strategy: RoutingStrategy = RoutingStrategy.PRIORITY,
     request_timeout_seconds: float,
 ) -> tuple[dict[str, Any], str]:
     """Forward ``payload`` to a healthy upstream, retrying on transient failures.
@@ -173,7 +178,7 @@ async def forward_with_failover(
     """
     base = request_timeout_seconds / 4
     cap = request_timeout_seconds * 4
-    ordered = _attempt_order(state, cfg)
+    ordered = _attempt_order(state, cfg, routing_strategy)
     if not ordered:
         await state.record_request(success=False)
         raise NoHealthyNodeError("no nodes configured")
@@ -240,10 +245,12 @@ class ProxyHandler:
         state: RouterState,
         cfg: list[RpcNode],
         *,
+        routing_strategy: RoutingStrategy = RoutingStrategy.PRIORITY,
         request_timeout_seconds: float,
     ) -> None:
         self.state = state
         self.cfg = cfg
+        self.routing_strategy = routing_strategy
         self.request_timeout_seconds = request_timeout_seconds
 
     async def handle(self, request: web.Request) -> web.Response:
@@ -261,6 +268,7 @@ class ProxyHandler:
                 self.cfg,
                 client,
                 raw,
+                routing_strategy=self.routing_strategy,
                 request_timeout_seconds=self.request_timeout_seconds,
             )
         except NoHealthyNodeError:
@@ -275,6 +283,7 @@ def make_app(
     cfg: list[RpcNode],
     *,
     upstream_client: Optional[aiohttp.ClientSession] = None,
+    routing_strategy: RoutingStrategy = RoutingStrategy.PRIORITY,
     request_timeout_seconds: float = 10.0,
 ) -> web.Application:
     """Build an :class:`aiohttp.web.Application` exposing ``POST /`` and ``GET /healthz``.
@@ -288,12 +297,16 @@ def make_app(
     app = web.Application()
     app["state"] = state
     app["cfg"] = cfg
+    app["routing_strategy"] = routing_strategy
     app["upstream_client"] = upstream_client
     app["request_timeout_seconds"] = request_timeout_seconds
     if upstream_client is None:
         app.cleanup_ctx.append(_managed_upstream_client)
     handler = ProxyHandler(
-        state, cfg, request_timeout_seconds=request_timeout_seconds
+        state,
+        cfg,
+        routing_strategy=routing_strategy,
+        request_timeout_seconds=request_timeout_seconds,
     )
     app.router.add_post("/", handler.handle)
     app.router.add_get("/healthz", _healthz)
@@ -328,7 +341,7 @@ async def main_async(cfg_path: str, with_tui: bool = False) -> None:
     from core.prober import prober_loop
 
     cfg = load_config(cfg_path)
-    state = RouterState.from_config(cfg.rpc_nodes)
+    state = RouterState.from_config(cfg.rpc_nodes, cfg.global_.routing_strategy)
     stop = asyncio.Event()
 
     async def _wait_for_signal() -> None:
@@ -363,6 +376,7 @@ async def main_async(cfg_path: str, with_tui: bool = False) -> None:
             state,
             cfg.rpc_nodes,
             upstream_client=client,
+            routing_strategy=cfg.global_.routing_strategy,
             request_timeout_seconds=cfg.global_.request_timeout_seconds,
         )
         runner = web.AppRunner(app)

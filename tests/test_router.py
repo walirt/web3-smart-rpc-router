@@ -2,17 +2,17 @@
 
 The router module exposes:
 
-* :class:`NoHealthyNodeError` — the exception raised when every
+* :class:`NoHealthyNodeError` 鈥?the exception raised when every
   candidate node has been tried without a 2xx response.
-* :func:`select_node` — strategy-aware node selection driven by the
+* :func:`select_node` 鈥?strategy-aware node selection driven by the
   routing strategy declared on each :class:`~core.models.RpcNode`.
-* :func:`forward_with_failover` — the core proxy loop: try each node
+* :func:`forward_with_failover` 鈥?the core proxy loop: try each node
   in priority order, fall back on 429 / 5xx / network / JSON errors,
   with bounded exponential backoff between attempts.
-* :class:`ProxyHandler` and :func:`make_app` — the aiohttp web glue
+* :class:`ProxyHandler` and :func:`make_app` 鈥?the aiohttp web glue
   that exposes ``POST /`` (JSON-RPC passthrough) and
   ``GET /healthz`` (liveness probe).
-* :func:`main_async` — the entry point that ties together the server,
+* :func:`main_async` 鈥?the entry point that ties together the server,
   the prober, and the optional TUI.
 
 Every HTTP-level test in this file uses :mod:`aioresponses` to stub
@@ -50,6 +50,7 @@ def base_global() -> GlobalSettings:
         listen_port=18545,
         probe_interval_seconds=60.0,
         request_timeout_seconds=10.0,
+        routing_strategy=RoutingStrategy.PRIORITY,
         max_retries=3,
     )
 
@@ -59,7 +60,6 @@ def alpha_node() -> RpcNode:
     return RpcNode(
         provider="alpha",
         url="https://alpha.test/rpc",
-        routing_strategy=RoutingStrategy.PRIORITY,
         priority=1,
         weight=1,
         headers={},
@@ -71,7 +71,6 @@ def beta_node() -> RpcNode:
     return RpcNode(
         provider="beta",
         url="https://beta.test/rpc",
-        routing_strategy=RoutingStrategy.PRIORITY,
         priority=2,
         weight=1,
         headers={},
@@ -206,19 +205,20 @@ async def test_select_node_lowest_latency(
     state_for.nodes["alpha"].latency_ms = 50.0
     state_for.nodes["beta"].latency_ms = 12.0
     cfg = [state_for.nodes["alpha"], state_for.nodes["beta"]]
-    # Force both nodes to use the lowest_latency strategy.
-    for n in cfg:
-        n.routing_strategy = RoutingStrategy.LOWEST_LATENCY
-    chosen = await _select(state_for, cfg)
+    chosen = await _select(state_for, cfg, RoutingStrategy.LOWEST_LATENCY)
     assert chosen.provider == "beta"
 
 
-async def _select(state: RouterState, cfg: list[RpcNode]) -> RpcNode:
+async def _select(
+    state: RouterState,
+    cfg: list[RpcNode],
+    routing_strategy: RoutingStrategy,
+) -> RpcNode:
     """Helper to call select_node under the state's lock where it expects to be."""
     # The router's select_node uses ``state.transaction`` to mutate
     # round_robin_index; calling it directly is fine for non-RR
     # strategies.
-    return select_node(state, cfg)
+    return select_node(state, cfg, routing_strategy)
 
 
 # ---------------------------------------------------------------------------
@@ -229,12 +229,10 @@ async def _select(state: RouterState, cfg: list[RpcNode]) -> RpcNode:
 async def test_round_robin_rotates_across_healthy_nodes(
     state_for: RouterState,
 ) -> None:
-    for n in state_for.nodes.values():
-        n.routing_strategy = RoutingStrategy.ROUND_ROBIN
     cfg = list(state_for.nodes.values())
-    p1 = select_node(state_for, cfg)
-    p2 = select_node(state_for, cfg)
-    p3 = select_node(state_for, cfg)
+    p1 = select_node(state_for, cfg, RoutingStrategy.ROUND_ROBIN)
+    p2 = select_node(state_for, cfg, RoutingStrategy.ROUND_ROBIN)
+    p3 = select_node(state_for, cfg, RoutingStrategy.ROUND_ROBIN)
     assert p1.provider != p2.provider
     assert p1.provider == p3.provider
 
@@ -248,7 +246,7 @@ async def test_priority_picks_highest_priority_when_healthy(
     state_for: RouterState,
 ) -> None:
     # alpha has priority=1 (highest), beta has priority=2.
-    chosen = select_node(state_for, list(state_for.nodes.values()))
+    chosen = select_node(state_for, list(state_for.nodes.values()), RoutingStrategy.PRIORITY)
     assert chosen.provider == "alpha"
 
 
@@ -288,10 +286,12 @@ def test_select_node_lowest_latency_falls_back_to_priority(
     state_for: RouterState,
 ) -> None:
     """Without any latency data, ``lowest_latency`` picks the highest-priority node."""
-    for n in state_for.nodes.values():
-        n.routing_strategy = RoutingStrategy.LOWEST_LATENCY
     # No latency data set; expect alpha (priority=1) to win by fallback.
-    chosen = select_node(state_for, list(state_for.nodes.values()))
+    chosen = select_node(
+        state_for,
+        list(state_for.nodes.values()),
+        RoutingStrategy.LOWEST_LATENCY,
+    )
     assert chosen.provider == "alpha"
 
 
@@ -340,10 +340,10 @@ async def test_proxy_handler_returns_400_on_non_json_body(
 async def test_failover_is_order_stable(
     state_for: RouterState,
 ) -> None:
-    for n in state_for.nodes.values():
-        n.routing_strategy = RoutingStrategy.FAILOVER
     cfg = list(state_for.nodes.values())
-    providers = [select_node(state_for, cfg).provider for _ in range(3)]
+    providers = [
+        select_node(state_for, cfg, RoutingStrategy.FAILOVER).provider for _ in range(3)
+    ]
     assert providers == ["alpha", "alpha", "alpha"]
 
 
@@ -401,8 +401,6 @@ async def test_forward_round_robin_uses_rotating_first_hop(
     aiohttp_session: aiohttp.ClientSession,
 ) -> None:
     """The proxy path honours round_robin, not just ``select_node``."""
-    for node in two_node_config:
-        node.routing_strategy = RoutingStrategy.ROUND_ROBIN
     body_a = {"jsonrpc": "2.0", "id": 1, "result": "alpha"}
     body_b = {"jsonrpc": "2.0", "id": 2, "result": "beta"}
     with aioresponses() as mocked:
@@ -411,11 +409,13 @@ async def test_forward_round_robin_uses_rotating_first_hop(
         first, first_provider = await forward_with_failover(
             state_for, two_node_config, aiohttp_session,
             {"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber"},
+            routing_strategy=RoutingStrategy.ROUND_ROBIN,
             request_timeout_seconds=10.0,
         )
         second, second_provider = await forward_with_failover(
             state_for, two_node_config, aiohttp_session,
             {"jsonrpc": "2.0", "id": 2, "method": "eth_blockNumber"},
+            routing_strategy=RoutingStrategy.ROUND_ROBIN,
             request_timeout_seconds=10.0,
         )
     assert first == body_a
@@ -430,8 +430,6 @@ async def test_forward_lowest_latency_uses_fastest_first_hop(
     aiohttp_session: aiohttp.ClientSession,
 ) -> None:
     """The proxy path honours the prober's latency observations."""
-    for node in two_node_config:
-        node.routing_strategy = RoutingStrategy.LOWEST_LATENCY
     state_for.nodes["alpha"].latency_ms = 50.0
     state_for.nodes["beta"].latency_ms = 12.0
     body_b = {"jsonrpc": "2.0", "id": 1, "result": "fast"}
@@ -440,6 +438,7 @@ async def test_forward_lowest_latency_uses_fastest_first_hop(
         result, provider = await forward_with_failover(
             state_for, two_node_config, aiohttp_session,
             {"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber"},
+            routing_strategy=RoutingStrategy.LOWEST_LATENCY,
             request_timeout_seconds=10.0,
         )
     assert result == body_b
@@ -457,7 +456,7 @@ def test_select_node_raises_when_all_unhealthy(
     for n in state_for.nodes.values():
         n.healthy = False
     with pytest.raises(NoHealthyNodeError):
-        select_node(state_for, list(state_for.nodes.values()))
+        select_node(state_for, list(state_for.nodes.values()), RoutingStrategy.PRIORITY)
 
 
 # ---------------------------------------------------------------------------

@@ -86,15 +86,74 @@ global:
   listen_port: 8545
   probe_interval_seconds: 5.0
   request_timeout_seconds: 10.0
+  routing_strategy: priority
   max_retries: 3
 
 rpc_nodes:
   - provider: cloudflare-eth
     url: https://cloudflare-ethereum.com
-    routing_strategy: priority
     priority: 1
     weight: 1
     headers: {}
+```
+
+### 如何使用 `config.yaml`
+
+1. 复制或直接编辑仓库根目录下的 `config.yaml`。
+2. 设置 `global.listen_port`，它决定本地路由器监听的端口。
+3. 设置 `global.routing_strategy`，它决定路由器如何选择上游节点。
+4. 在 `rpc_nodes` 中为每个上游 RPC 服务商添加一条节点配置。
+5. 每个节点都需要唯一的 `provider` 名称和唯一的 `priority` 数值。
+6. 启动前先验证配置：
+
+```bash
+python -m core.config config.yaml
+```
+
+7. 使用该配置启动路由器：
+
+```bash
+python -m core.router config.yaml --with-tui
+```
+
+字段说明：
+
+| 字段 | 位置 | 含义 |
+|---|---|---|
+| `listen_port` | `global` | 路由器暴露的本地 HTTP 端口 |
+| `probe_interval_seconds` | `global` | 后台健康探测的间隔 |
+| `request_timeout_seconds` | `global` | 上游请求超时，也是退避计算的基础 |
+| `routing_strategy` | `global` | 可选 `priority`、`round_robin`、`lowest_latency`、`failover` |
+| `max_retries` | `global` | 配置契约中保留的重试预算字段 |
+| `provider` | `rpc_nodes[]` | 上游节点的唯一名称，也用于状态和 TUI 展示 |
+| `url` | `rpc_nodes[]` | 上游 JSON-RPC HTTP(S) 地址 |
+| `priority` | `rpc_nodes[]` | 数值越小优先级越高 |
+| `weight` | `rpc_nodes[]` | 配置契约中保留的权重字段 |
+| `headers` | `rpc_nodes[]` | 发往该上游节点的可选 HTTP 请求头 |
+
+两个上游节点示例：
+
+```yaml
+global:
+  listen_port: 8545
+  probe_interval_seconds: 5.0
+  request_timeout_seconds: 10.0
+  routing_strategy: priority
+  max_retries: 3
+
+rpc_nodes:
+  - provider: primary
+    url: https://primary.example/rpc
+    priority: 1
+    weight: 1
+    headers: {}
+
+  - provider: fallback
+    url: https://fallback.example/rpc
+    priority: 2
+    weight: 1
+    headers:
+      X-Demo: local-router
 ```
 
 配置校验规则：
@@ -103,6 +162,7 @@ rpc_nodes:
 - 节点和全局配置中的未知字段都会被拒绝。
 - provider 名称和 priority 必须唯一。
 - URL 必须使用 `http` 或 `https`。
+- `routing_strategy` 属于 `global`，不要放到单个节点下面。
 - timeout 和 probe interval 必须为正数。
 - 错误 YAML 和非法 schema 会原样抛出，不会被吞掉。
 
@@ -237,7 +297,7 @@ mypy --strict core ui
 当前验证结果：
 
 ```text
-96 passed
+97 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found

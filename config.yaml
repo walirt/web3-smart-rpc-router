@@ -2,9 +2,8 @@
 #
 # This file exercises every required field in core/models.py: a `global`
 # block with listen_port, probe_interval_seconds, request_timeout_seconds,
-# and max_retries, plus two rpc_nodes (one HTTP, one HTTPS) using the
-# `priority` routing strategy with distinct providers and distinct
-# priorities.
+# routing_strategy, and max_retries, plus two rpc_nodes with distinct
+# providers and distinct priorities.
 #
 # Validate with:  python -m core.config config.yaml
 
@@ -12,21 +11,20 @@ global:
   listen_port: 8545
   probe_interval_seconds: 5.0
   request_timeout_seconds: 10.0
+  routing_strategy: priority
   max_retries: 3
 
 rpc_nodes:
-  # Highest-priority node: HTTPS Cloudflare Ethereum gateway.
-  - provider: cloudflare-eth
-    url: https://cloudflare-ethereum.com
-    routing_strategy: priority
+  # Highest-priority node: HTTPS Publicnode Ethereum gateway.
+  - provider: publicnode-eth
+    url: https://ethereum-rpc.publicnode.com
     priority: 1
     weight: 1
     headers: {}
 
-  # Fallback node: HTTP Ankr endpoint, lower priority.
-  - provider: ankr-eth
-    url: http://rpc.ankr.com/eth
-    routing_strategy: priority
+  # Fallback node: HTTPS Drpc endpoint, lower priority.
+  - provider: drpc-eth
+    url: https://eth.drpc.org
     priority: 2
     weight: 1
     headers: {}

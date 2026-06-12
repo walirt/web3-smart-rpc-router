@@ -32,6 +32,7 @@ def global_settings() -> GlobalSettings:
         listen_port=18545,
         probe_interval_seconds=0.05,  # tight loop for tests
         request_timeout_seconds=2.0,
+        routing_strategy=RoutingStrategy.PRIORITY,
         max_retries=3,
     )
 
@@ -41,7 +42,6 @@ def alpha_node() -> RpcNode:
     return RpcNode(
         provider="alpha",
         url="https://alpha.test/rpc",
-        routing_strategy=RoutingStrategy.PRIORITY,
         priority=1,
         weight=1,
         headers={},
@@ -53,7 +53,6 @@ def beta_node() -> RpcNode:
     return RpcNode(
         provider="beta",
         url="https://beta.test/rpc",
-        routing_strategy=RoutingStrategy.PRIORITY,
         priority=2,
         weight=1,
         headers={},

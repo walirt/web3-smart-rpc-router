@@ -27,11 +27,11 @@ def test_valid_full_config_builds(valid_global_dict, valid_node_dict):
     assert cfg.global_.listen_port == 8545
     assert cfg.global_.probe_interval_seconds == 5.0
     assert cfg.global_.request_timeout_seconds == 10.0
+    assert cfg.global_.routing_strategy == RoutingStrategy.ROUND_ROBIN
     assert cfg.global_.max_retries == 3
     assert len(cfg.rpc_nodes) == 1
     assert cfg.rpc_nodes[0].provider == "test-provider"
     assert cfg.rpc_nodes[0].url == "https://example.com"
-    assert cfg.rpc_nodes[0].routing_strategy == RoutingStrategy.ROUND_ROBIN
     assert cfg.rpc_nodes[0].priority == 1
     assert cfg.rpc_nodes[0].weight == 1
     assert cfg.rpc_nodes[0].headers == {}
@@ -108,13 +108,18 @@ def test_url_with_https_accepted(valid_node_dict):
     assert parsed.url == "https://rpc.example.org/eth"
 
 
-def test_invalid_routing_strategy_raises(valid_node_dict):
-    """A routing_strategy outside the locked enum is rejected."""
-    node = dict(valid_node_dict)
-    node["routing_strategy"] = "magic"
+def test_invalid_routing_strategy_raises():
+    """A global routing_strategy outside the locked enum is rejected."""
+    global_settings = {
+        "listen_port": 8545,
+        "probe_interval_seconds": 5.0,
+        "request_timeout_seconds": 10.0,
+        "routing_strategy": "magic",
+        "max_retries": 3,
+    }
 
     with pytest.raises(ValidationError):
-        RpcNode.model_validate(node)
+        GlobalSettings.model_validate(global_settings)
 
 
 def test_priority_below_one_raises(valid_node_dict):
@@ -201,6 +206,15 @@ def test_weight_zero_raises(valid_node_dict):
     """weight=0 violates the ge=1 constraint."""
     node = dict(valid_node_dict)
     node["weight"] = 0
+
+    with pytest.raises(ValidationError):
+        RpcNode.model_validate(node)
+
+
+def test_node_routing_strategy_extra_rejected(valid_node_dict):
+    """routing_strategy belongs in global settings, not on each node."""
+    node = dict(valid_node_dict)
+    node["routing_strategy"] = "priority"
 
     with pytest.raises(ValidationError):
         RpcNode.model_validate(node)

@@ -89,15 +89,74 @@ global:
   listen_port: 8545
   probe_interval_seconds: 5.0
   request_timeout_seconds: 10.0
+  routing_strategy: priority
   max_retries: 3
 
 rpc_nodes:
   - provider: cloudflare-eth
     url: https://cloudflare-ethereum.com
-    routing_strategy: priority
     priority: 1
     weight: 1
     headers: {}
+```
+
+### How to Use `config.yaml`
+
+1. Copy or edit `config.yaml` in the repository root.
+2. Set `global.listen_port` to the local port you want the router to expose.
+3. Set `global.routing_strategy` to choose how the router selects upstreams.
+4. Add one `rpc_nodes` entry per upstream RPC provider.
+5. Give every node a unique `provider` name and a unique `priority` number.
+6. Validate before running:
+
+```bash
+python -m core.config config.yaml
+```
+
+7. Start the router with that config:
+
+```bash
+python -m core.router config.yaml --with-tui
+```
+
+Field reference:
+
+| Field | Where | Meaning |
+|---|---|---|
+| `listen_port` | `global` | Local HTTP port exposed by the router |
+| `probe_interval_seconds` | `global` | How often the background prober checks each upstream |
+| `request_timeout_seconds` | `global` | Upstream request timeout and backoff basis |
+| `routing_strategy` | `global` | One of `priority`, `round_robin`, `lowest_latency`, `failover` |
+| `max_retries` | `global` | Reserved retry budget in the config contract |
+| `provider` | `rpc_nodes[]` | Unique display and state key for the upstream |
+| `url` | `rpc_nodes[]` | Upstream JSON-RPC HTTP(S) endpoint |
+| `priority` | `rpc_nodes[]` | Lower number means higher priority |
+| `weight` | `rpc_nodes[]` | Reserved weight field in the config contract |
+| `headers` | `rpc_nodes[]` | Optional HTTP headers sent to that upstream |
+
+Example with two upstreams:
+
+```yaml
+global:
+  listen_port: 8545
+  probe_interval_seconds: 5.0
+  request_timeout_seconds: 10.0
+  routing_strategy: priority
+  max_retries: 3
+
+rpc_nodes:
+  - provider: primary
+    url: https://primary.example/rpc
+    priority: 1
+    weight: 1
+    headers: {}
+
+  - provider: fallback
+    url: https://fallback.example/rpc
+    priority: 2
+    weight: 1
+    headers:
+      X-Demo: local-router
 ```
 
 Validation rules are strict:
@@ -106,6 +165,7 @@ Validation rules are strict:
 - Unknown node/global fields are rejected.
 - Provider names and priorities must be unique.
 - URLs must use `http` or `https`.
+- `routing_strategy` belongs under `global`, not under individual nodes.
 - Timeouts and probe intervals must be positive.
 - Bad YAML and invalid schemas propagate as errors instead of being swallowed.
 
@@ -246,7 +306,7 @@ mypy --strict core ui
 Current verified result:
 
 ```text
-96 passed
+97 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found
