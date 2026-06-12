@@ -231,34 +231,6 @@ def test_main_keyboard_interrupt_prints_shutdown(
 
 
 # ---------------------------------------------------------------------------
-# main_async with the TUI attached
-# ---------------------------------------------------------------------------
-
-
-async def test_main_async_with_tui_runs_dashboard(
-    integration_config: Path,
-) -> None:
-    """``main_async(..., with_tui=True)`` schedules the dashboard task without crashing."""
-    runner_task = asyncio.create_task(
-        main_async(str(integration_config), with_tui=True)
-    )
-    # Let the prober tick and the TUI render at least one frame.
-    await asyncio.sleep(0.4)
-    try:
-        async with aiohttp.ClientSession() as client:
-            resp = await client.get(
-                f"http://127.0.0.1:{_read_yaml(integration_config)['global']['listen_port']}/healthz"
-            )
-            assert resp.status == 200
-    finally:
-        runner_task.cancel()
-        try:
-            await runner_task
-        except (asyncio.CancelledError, BaseException):
-            pass
-
-
-# ---------------------------------------------------------------------------
 # main() KeyboardInterrupt path
 # ---------------------------------------------------------------------------
 

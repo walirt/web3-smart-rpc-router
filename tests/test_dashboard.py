@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import sys
 import time
 from io import StringIO
 
@@ -210,22 +209,6 @@ async def test_dashboard_loop_returns_immediately_when_stop_already_set(
 # ---------------------------------------------------------------------------
 # dashboard_loop: stop set during the wait -> else: return path
 # ---------------------------------------------------------------------------
-
-
-async def test_dashboard_loop_exercises_except_branch(
-    state_for_dashboard: RouterState,
-) -> None:
-    """When ``wait_for`` times out (no ``stop``), the loop hits the ``except: continue`` path."""
-    stop = asyncio.Event()
-    # Tight refresh so wait_for times out almost immediately.
-    task = asyncio.create_task(
-        dashboard_loop(state_for_dashboard, stop, refresh_seconds=0.05)
-    )
-    # Let two refresh intervals elapse so the loop times out at least
-    # twice (which exercises the ``except: continue`` path).
-    await asyncio.sleep(0.15)
-    stop.set()
-    await asyncio.wait_for(task, timeout=2.0)
 
 
 async def test_dashboard_loop_exercises_except_branch(

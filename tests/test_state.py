@@ -12,7 +12,6 @@ and the type of the underlying ``asyncio.Lock``.
 from __future__ import annotations
 
 import asyncio
-import time
 
 import pytest
 
