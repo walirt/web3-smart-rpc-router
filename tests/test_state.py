@@ -12,11 +12,12 @@ and the type of the underlying ``asyncio.Lock``.
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
 from core.models import GlobalSettings, MethodRoute, RoutingStrategy, RpcNode
-from core.state import NodeStats, RouterState
+from core.state import NodeStats, RouterState, format_event
 
 
 # ---------------------------------------------------------------------------
@@ -161,8 +162,8 @@ async def test_event_log_capped_at_256() -> None:
         await state.record_event(f"event-{i}")
     assert len(state.event_log) == 256
     # The cap drops the oldest entries first.
-    assert state.event_log[0] == "event-44"
-    assert state.event_log[-1] == "event-299"
+    assert state.event_log[0].endswith("event-44")
+    assert state.event_log[-1].endswith("event-299")
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +241,8 @@ async def test_from_config_seeds_nodes(global_settings, two_node_config) -> None
         method_routes,
         listen_host="0.0.0.0",
         listen_port=8545,
+        probe_interval_seconds=global_settings.probe_interval_seconds,
+        request_timeout_seconds=global_settings.request_timeout_seconds,
     )
     assert set(state.nodes) == {"alpha", "beta"}
     assert state.nodes["alpha"].provider == "alpha"
@@ -249,6 +252,8 @@ async def test_from_config_seeds_nodes(global_settings, two_node_config) -> None
     assert state.routing_strategy is global_settings.routing_strategy
     assert state.listen_host == "0.0.0.0"
     assert state.listen_port == 8545
+    assert state.probe_interval_seconds == global_settings.probe_interval_seconds
+    assert state.request_timeout_seconds == global_settings.request_timeout_seconds
     assert state.nodes["alpha"].healthy is True
     # Counter / log fields stay at their zero defaults.
     assert state.total_requests == 0
@@ -270,7 +275,17 @@ async def test_record_failover_appends_event_and_increments() -> None:
     state = RouterState()
     await state.record_failover("alpha", "beta")
     assert state.total_failovers == 1
-    assert list(state.event_log)[-1] == "failover alpha -> beta"
+    assert list(state.event_log)[-1].endswith("failover alpha -> beta")
+
+
+def test_format_event_uses_record_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``format_event`` stores the event timestamp at write time."""
+    recorded = time.struct_time((2024, 1, 1, 1, 1, 1, 0, 1, -1))
+    monkeypatch.setattr("core.state.time.localtime", lambda _timestamp: recorded)
+
+    assert format_event("probe-fail alpha boom", timestamp=123.0) == (
+        "[01:01:01] probe-fail alpha boom"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -303,5 +318,7 @@ def test_snapshot_deep_copies_nodes_and_event_log() -> None:
     assert snap["routing_strategy"] is RoutingStrategy.PRIORITY
     assert snap["listen_host"] == "127.0.0.1"
     assert snap["listen_port"] is None
+    assert snap["probe_interval_seconds"] is None
+    assert snap["request_timeout_seconds"] is None
     snap["event_log"].append("y")
     assert list(state.event_log) == ["x"]

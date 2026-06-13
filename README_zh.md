@@ -4,7 +4,7 @@
 
 > _由 [CyOps](https://docs.cysic.xyz/cysic-ai/cysic-automation/cyops/) 构建_
 
-一个面向 Ethereum 风格 JSON-RPC 流量的本地智能网关。它把多个公共上游 RPC 节点聚合成一个稳定的本地入口，在上游出现临时故障时自动故障转移，并通过终端 TUI 展示实时健康、流量和自愈日志。
+一个面向 Ethereum 风格 JSON-RPC 流量的本地智能网关。它把多个公共上游 RPC 节点聚合成一个稳定的本地入口，在上游出现临时故障时自动故障转移，并通过终端 TUI 展示实时健康、流量和请求路由日志。
 
 ## 解决的问题
 
@@ -257,7 +257,7 @@ HTTP 状态码为 `503`。
 - Node Health：provider、status、ping、pressure bar、success-rate estimate。
 - Method Routing：按方法配置的 provider 子集和可选策略覆盖。
 - Traffic & Performance：当前 TPS、故障转移次数、总请求数和流量迁移提示。
-- Live Self-Healing Logs：探测失败、故障转移和请求事件日志。
+- Live Request Routing：实时请求到上游节点的路由日志，同时保留探测失败和故障转移事件作为运行上下文。
 
 实现位置：`ui/dashboard.py`，主要使用 `rich.layout.Layout`、`rich.panel.Panel`
 和 `rich.table.Table`。
@@ -329,7 +329,7 @@ mypy --strict core ui
 当前验证结果：
 
 ```text
-108 passed
+112 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found

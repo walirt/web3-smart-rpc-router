@@ -19,7 +19,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from core.models import RoutingStrategy
-from core.state import NodeStats, RouterState
+from core.state import NodeStats, RouterState, format_event
 
 
 COLOR_BG = "#0a0a14"
@@ -39,7 +39,7 @@ def render_frame(snapshot: dict[str, Any]) -> Layout:
     methods_size = max(5, min(10, len(method_routes) + 4))
     layout = Layout()
     layout.split_column(
-        Layout(name="header", size=4),
+        Layout(name="header", size=5),
         Layout(name="nodes", size=nodes_size),
         Layout(name="methods", size=methods_size),
         Layout(name="traffic", size=5),
@@ -62,17 +62,24 @@ def _build_header(snapshot: dict[str, Any]) -> Panel:
     host = snapshot.get("listen_host", "127.0.0.1")
     port = snapshot.get("listen_port")
     bind = f"{host}:{port}" if port is not None else f"{host}:-"
+    probe_interval = _format_seconds_value(snapshot.get("probe_interval_seconds"))
+    request_timeout = _format_seconds_value(snapshot.get("request_timeout_seconds"))
     grid = Table.grid(expand=True, padding=(0, 2))
     grid.add_column(ratio=3, no_wrap=True)
-    grid.add_column(ratio=2, no_wrap=True)
-    grid.add_column(ratio=2, no_wrap=True)
+    grid.add_column(ratio=3, no_wrap=True)
+    grid.add_column(ratio=3, no_wrap=True)
     grid.add_row(
         f"🚀 [bold {COLOR_CYAN}]Web3 Smart RPC Router[/]",
-        f"Strategy: [bold {COLOR_CYAN}]{routing_strategy}[/]",
-        f"Bind: [bold {COLOR_CYAN}]{bind}[/]",
+        "",
+        "",
     )
     grid.add_row(
-        "",
+        f"Probe Interval: [bold {COLOR_CYAN}]{probe_interval}[/]",
+        f"Request Timeout: [bold {COLOR_CYAN}]{request_timeout}[/]",
+        f"Strategy: [bold {COLOR_CYAN}]{routing_strategy}[/]",
+    )
+    grid.add_row(
+        f"Bind: [bold {COLOR_CYAN}]{bind}[/]",
         f"Status: [[{COLOR_NEON_GREEN}]🟢 ACTIVE[/]]",
         f"Uptime: {_format_uptime(uptime)}",
     )
@@ -89,10 +96,10 @@ def _build_nodes(snapshot: dict[str, Any]) -> Panel:
         pad_edge=False,
         header_style=f"bold {COLOR_CYAN}",
     )
-    table.add_column("PROVIDER", style="bold", ratio=4, no_wrap=True)
+    table.add_column("PROVIDER", style="bold", ratio=3, no_wrap=True)
     table.add_column("STATUS", justify="center", ratio=1, no_wrap=True)
     table.add_column("PING", justify="center", ratio=1, no_wrap=True)
-    table.add_column("PRESSURE", justify="center", ratio=2, no_wrap=True)
+    table.add_column("PRESSURE", justify="center", ratio=3, no_wrap=True)
     table.add_column("SUCCESS RATE", justify="center", ratio=2, no_wrap=True)
 
     nodes: dict[str, NodeStats] = snapshot.get("nodes", {})
@@ -186,15 +193,15 @@ def _build_traffic(snapshot: dict[str, Any]) -> Panel:
 
 
 def _build_logs(snapshot: dict[str, Any]) -> Panel:
-    """Build the live self-healing log panel."""
+    """Build the live request-routing log panel."""
     events = list(snapshot.get("event_log", []))[-EVENT_TAPE_LINES:]
     if not events:
-        body = "[dim](no self-healing events yet)[/]"
+        body = "[dim](no request routing events yet)[/]"
     else:
         body = "\n".join(_format_log_line(line) for line in events)
     return Panel(
         body,
-        title="🚨 实时自愈日志 (Live Self-Healing Logs)",
+        title="🧾 实时请求日志 (Live Request Routing)",
         title_align="left",
         box=box.ROUNDED,
         border_style=COLOR_MAGENTA,
@@ -215,6 +222,16 @@ def _format_uptime(seconds: float) -> str:
     hours, remainder = divmod(total, 3600)
     minutes, secs = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _format_seconds_value(value: object) -> str:
+    """Render a configured seconds value for compact header display."""
+    if isinstance(value, int | float):
+        seconds = float(value)
+        if seconds.is_integer():
+            return f"{int(seconds)}s"
+        return f"{seconds:g}s"
+    return "-"
 
 
 def _format_status(stats: NodeStats) -> str:
@@ -276,12 +293,27 @@ def _traffic_hint(snapshot: dict[str, Any]) -> str:
 
 def _format_log_line(line: str) -> str:
     """Render one event line with timestamp and severity."""
-    timestamp = time.strftime("%H:%M:%S")
-    if line.startswith("failover "):
-        return f"[{timestamp}] [INFO] 🔄 Rerouting {line.removeprefix('failover ')}"
-    if line.startswith("probe-fail "):
-        return f"[{timestamp}] [WARN] {line.removeprefix('probe-fail ')}"
-    return f"[{timestamp}] [INFO] {line}"
+    timestamp, event = _split_event_timestamp(line)
+    if event.startswith("request "):
+        return f"{timestamp} [REQ] {event.removeprefix('request ')}"
+    if event.startswith("failover "):
+        return f"{timestamp} [FAILOVER] 🔄 Rerouting {event.removeprefix('failover ')}"
+    if event.startswith("probe-fail "):
+        return f"{timestamp} [WARN] {event.removeprefix('probe-fail ')}"
+    return f"{timestamp} [INFO] {event}"
+
+
+def _split_event_timestamp(line: str) -> tuple[str, str]:
+    """Return ``("[HH:MM:SS]", message)`` for timestamped event-log lines."""
+    if (
+        len(line) > 11
+        and line[0] == "["
+        and line[3] == ":"
+        and line[6] == ":"
+        and line[9:11] == "] "
+    ):
+        return line[:10], line[11:]
+    return f"[{time.strftime('%H:%M:%S')}]", line
 
 
 async def dashboard_loop(
@@ -314,6 +346,8 @@ def _build_demo_state() -> RouterState:
     state.routing_strategy = RoutingStrategy.PRIORITY
     state.listen_host = "0.0.0.0"
     state.listen_port = 8545
+    state.probe_interval_seconds = 5.0
+    state.request_timeout_seconds = 5.0
     state.nodes["Alchemy-Free"] = NodeStats(
         provider="Alchemy-Free",
         url="https://alchemy.example/rpc",
@@ -366,12 +400,11 @@ def _build_demo_state() -> RouterState:
     state.tps_1s = 42.0
     state.event_log.extend(
         [
-            "Request eth_blockNumber -> Alchemy-Free (45ms)",
-            "Request eth_sendRawTx -> QuickNode (96ms)",
-            "probe-fail Infura-Main returned 429 Too Many Requests!",
-            "failover Infura-Main -> Alchemy-Free",
-            "Reroute successful! Transparent to client, Latency: 167ms",
-            "Request eth_call -> Alchemy-Free (48ms)",
+            format_event("request eth_blockNumber -> Alchemy-Free (45ms)"),
+            format_event("request eth_sendRawTransaction -> QuickNode (96ms)"),
+            format_event("probe-fail Infura-Main returned 429 Too Many Requests!"),
+            format_event("failover Infura-Main -> Alchemy-Free"),
+            format_event("request eth_call -> Alchemy-Free (48ms)"),
         ]
     )
     state.started_at = time.monotonic() - 15_153

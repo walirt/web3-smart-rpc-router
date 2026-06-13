@@ -39,6 +39,12 @@ _EVENT_LOG_CAPACITY: int = 256
 _TPS_WINDOW_SECONDS: float = 1.0
 
 
+def format_event(message: str, *, timestamp: float | None = None) -> str:
+    """Prefix an event message with the wall-clock time when it was recorded."""
+    when = time.localtime(time.time() if timestamp is None else timestamp)
+    return f"[{time.strftime('%H:%M:%S', when)}] {message}"
+
+
 @dataclass
 class NodeStats:
     """Mutable, per-node runtime statistics.
@@ -74,6 +80,8 @@ class RouterState:
     routing_strategy: RoutingStrategy = RoutingStrategy.PRIORITY
     listen_host: str = "127.0.0.1"
     listen_port: int | None = None
+    probe_interval_seconds: float | None = None
+    request_timeout_seconds: float | None = None
     round_robin_index: int = 0
     total_requests: int = 0
     total_success: int = 0
@@ -111,12 +119,16 @@ class RouterState:
         method_routes: dict[str, MethodRoute] | None = None,
         listen_host: str = "127.0.0.1",
         listen_port: int | None = None,
+        probe_interval_seconds: float | None = None,
+        request_timeout_seconds: float | None = None,
     ) -> "RouterState":
         """Build a fresh :class:`RouterState` seeded from ``rpc_nodes``."""
         state = cls()
         state.routing_strategy = routing_strategy
         state.listen_host = listen_host
         state.listen_port = listen_port
+        state.probe_interval_seconds = probe_interval_seconds
+        state.request_timeout_seconds = request_timeout_seconds
         for node in rpc_nodes:
             state.nodes[node.provider] = NodeStats(
                 provider=node.provider,
@@ -157,7 +169,7 @@ class RouterState:
         entries are silently dropped when the cap is reached.
         """
         async with self.transaction():
-            self.event_log.append(message)
+            self.event_log.append(format_event(message))
 
     async def record_failover(self, from_provider: str, to_provider: str) -> None:
         """Record one failover hop.
@@ -167,7 +179,7 @@ class RouterState:
         """
         async with self.transaction():
             self.total_failovers += 1
-            self.event_log.append(f"failover {from_provider} -> {to_provider}")
+            self.event_log.append(format_event(f"failover {from_provider} -> {to_provider}"))
 
     async def record_request(self, success: bool) -> None:
         """Update per-request counters and refresh :attr:`tps_1s`.
@@ -210,6 +222,8 @@ class RouterState:
             "routing_strategy": self.routing_strategy,
             "listen_host": self.listen_host,
             "listen_port": self.listen_port,
+            "probe_interval_seconds": self.probe_interval_seconds,
+            "request_timeout_seconds": self.request_timeout_seconds,
             "round_robin_index": self.round_robin_index,
             "total_requests": self.total_requests,
             "total_success": self.total_success,
@@ -220,4 +234,4 @@ class RouterState:
         }
 
 
-__all__ = ["NodeStats", "RouterState"]
+__all__ = ["NodeStats", "RouterState", "format_event"]

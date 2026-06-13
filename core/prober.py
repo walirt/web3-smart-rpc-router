@@ -22,7 +22,7 @@ import time
 import aiohttp
 
 from core.models import RpcNode
-from core.state import NodeStats, RouterState
+from core.state import NodeStats, RouterState, format_event
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,7 +84,9 @@ async def probe_once(
                     err = f"upstream returned HTTP {resp.status}"
                     async with state.transaction():
                         _record_failure(stats, err, when)
-                        state.event_log.append(f"probe-fail {node.provider} {err}")
+                        state.event_log.append(
+                            format_event(f"probe-fail {node.provider} {err}")
+                        )
                     continue
                 # Drain the body so the connection can be released.
                 await resp.read()
@@ -97,7 +99,9 @@ async def probe_once(
             err = f"{type(exc).__name__}: {exc}"
             async with state.transaction():
                 _record_failure(stats, err, when)
-                state.event_log.append(f"probe-fail {node.provider} {err}")
+                state.event_log.append(
+                    format_event(f"probe-fail {node.provider} {err}")
+                )
             continue
         latency_ms = (time.perf_counter() - start) * 1000.0
         async with state.transaction():

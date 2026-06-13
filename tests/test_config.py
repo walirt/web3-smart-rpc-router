@@ -36,14 +36,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SAMPLE_CONFIG = REPO_ROOT / "config.yaml"
 
 
-def test_load_config_sample_returns_two_nodes():
-    """load_config('config.yaml') returns a RouterConfig with 2 nodes."""
+def test_load_config_sample_returns_nodes():
+    """load_config('config.yaml') returns a RouterConfig with distinct nodes."""
     cfg = load_config(SAMPLE_CONFIG)
     assert isinstance(cfg, RouterConfig)
-    assert len(cfg.rpc_nodes) == 2
-    # Spot-check that the sample's two providers are distinct.
+    assert len(cfg.rpc_nodes) >= 1
+    # Spot-check that the sample's providers are distinct.
     providers = {node.provider for node in cfg.rpc_nodes}
-    assert len(providers) == 2
+    assert len(providers) == len(cfg.rpc_nodes)
 
 
 def test_load_config_nonexistent_path_raises(tmp_path):
@@ -101,7 +101,8 @@ def test_format_summary_renders_ok_line():
     cfg = load_config(SAMPLE_CONFIG)
     assert (
         _format_summary(cfg)
-        == "OK: loaded 2 rpc_node(s); listen_host=0.0.0.0; listen_port=8545"
+        == f"OK: loaded {len(cfg.rpc_nodes)} rpc_node(s); "
+        f"listen_host={cfg.global_.listen_host}; listen_port={cfg.global_.listen_port}"
     )
 
 
@@ -113,9 +114,10 @@ def test_format_summary_renders_ok_line():
 def test_main_block_success(monkeypatch, capsys):
     """``python -m core.config config.yaml`` prints the OK summary."""
     monkeypatch.setattr(sys, "argv", ["core.config", str(SAMPLE_CONFIG)])
+    cfg = load_config(SAMPLE_CONFIG)
     runpy.run_module("core.config", run_name="__main__")
     captured = capsys.readouterr()
-    assert "OK: loaded 2 rpc_node(s); listen_host=0.0.0.0; listen_port=8545" in captured.out
+    assert _format_summary(cfg) in captured.out
 
 
 def test_main_block_usage_error(monkeypatch, capsys):

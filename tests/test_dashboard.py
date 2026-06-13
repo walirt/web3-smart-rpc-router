@@ -25,11 +25,12 @@ from rich.layout import Layout
 from rich.table import Table
 
 from core.models import RoutingStrategy
-from core.state import NodeStats, RouterState
+from core.state import NodeStats, RouterState, format_event
 from ui.dashboard import (
     _build_demo_state,
     _build_method_routes,
     _demo_main,
+    _format_seconds_value,
     _format_strategy_value,
     _format_log_line,
     _format_status,
@@ -72,6 +73,8 @@ def state_for_dashboard() -> RouterState:
     state.tps_1s = 1.0
     state.routing_strategy = RoutingStrategy.PRIORITY
     state.listen_port = 8545
+    state.probe_interval_seconds = 5.0
+    state.request_timeout_seconds = 5.0
     state.method_routes = {
         "eth_getLogs": {
             "providers": ["alpha"],
@@ -83,11 +86,10 @@ def state_for_dashboard() -> RouterState:
         },
     }
     for msg in [
+        "request eth_call -> alpha (12ms)",
         "failover alpha -> beta",
-        "probe-fail beta upstream returned HTTP 503",
-        "failover beta -> alpha",
     ]:
-        state.event_log.append(msg)
+        state.event_log.append(format_event(msg))
     state.started_at = time.monotonic() - 30.0  # 30s of fake uptime
     return state
 
@@ -168,7 +170,12 @@ def test_render_frame_event_tape_preserves_order(
     last = events[-8:]
     cursor = 0
     for line in last:
-        expected = line.removeprefix("failover ").removeprefix("probe-fail ")
+        _timestamp, event = line.split("] ", 1)
+        expected = (
+            event.removeprefix("request ")
+            .removeprefix("failover ")
+            .removeprefix("probe-fail ")
+        )
         idx = rendered_text.find(expected, cursor)
         assert idx >= 0, f"event line {expected!r} not found in rendered text"
         cursor = idx + len(expected)
@@ -180,12 +187,12 @@ def test_render_frame_event_tape_preserves_order(
 
 
 def test_render_frame_handles_empty_event_log() -> None:
-    """An empty event log renders the self-healing placeholder."""
+    """An empty event log renders the request-routing placeholder."""
     state = RouterState()
     snapshot = state.snapshot()
     layout = render_frame(snapshot)
     text = _flatten_text(layout)
-    assert "no self-healing events yet" in text
+    assert "no request routing events yet" in text
 
 
 def test_render_frame_uses_requested_dashboard_labels(
@@ -197,12 +204,14 @@ def test_render_frame_uses_requested_dashboard_labels(
     assert "Web3 Smart RPC Router (v1.0)" not in text
     assert "Strategy: priority" in text
     assert "Bind: 127.0.0.1:8545" in text
+    assert "Probe Interval: 5s" in text
+    assert "Request Timeout: 5s" in text
     assert "Status:" in text
     assert "Uptime:" in text
     assert "节点健康(Node Health)" in text
     assert "方法分流(Method Routing)" in text
     assert "全局流量统计" in text
-    assert "实时自愈日志" in text
+    assert "实时请求日志" in text
     assert "PROVIDER" in text
     assert "PRESSURE" in text
     assert "FAILURE PRESSURE" not in text
@@ -223,6 +232,13 @@ def test_global_strategy_formatter_uses_yaml_value() -> None:
     assert _format_strategy_value(RoutingStrategy.PRIORITY) == "priority"
     assert _format_strategy_value(RoutingStrategy.FAILOVER) == "failover"
     assert _format_strategy_value("custom") == "custom"
+
+
+def test_seconds_formatter_compacts_header_values() -> None:
+    """Header seconds values render compactly for integer, decimal, and missing values."""
+    assert _format_seconds_value(5.0) == "5s"
+    assert _format_seconds_value(0.25) == "0.25s"
+    assert _format_seconds_value(None) == "-"
 
 
 def test_status_formatter_handles_429_and_generic_error() -> None:
@@ -252,6 +268,20 @@ def test_status_formatter_handles_429_and_generic_error() -> None:
 def test_log_formatter_handles_plain_info_line() -> None:
     """Plain event lines render as INFO rows."""
     assert "[INFO]" in _format_log_line("Request eth_call -> alpha (48ms)")
+
+
+def test_log_formatter_handles_request_routing_line() -> None:
+    """Request events render as request-routing rows."""
+    rendered = _format_log_line("[01:02:03] request eth_call -> alpha (48ms)")
+    assert rendered.startswith("[01:02:03] [REQ]")
+    assert "eth_call -> alpha (48ms)" in rendered
+
+
+def test_log_formatter_preserves_recorded_timestamp() -> None:
+    """Timestamped event lines keep the original record time."""
+    rendered = _format_log_line("[01:02:03] probe-fail beta upstream returned HTTP 503")
+    assert rendered.startswith("[01:02:03] [WARN]")
+    assert "beta upstream returned HTTP 503" in rendered
 
 
 # ---------------------------------------------------------------------------

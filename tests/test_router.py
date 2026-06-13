@@ -141,7 +141,7 @@ async def test_429_on_first_node_triggers_failover_to_second(
     assert provider == "beta"
     assert state_for.total_success == 1
     assert state_for.total_failovers == 1
-    assert "failover alpha -> beta" in list(state_for.event_log)
+    assert any(line.endswith("failover alpha -> beta") for line in state_for.event_log)
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +471,10 @@ async def test_proxy_method_route_limits_provider_subset(
                 )
                 assert resp.status == 200
                 assert await resp.json() == body
+                assert any(
+                    "request eth_getLogs -> beta" in line
+                    for line in state_for.event_log
+                )
             finally:
                 await client.close()
 

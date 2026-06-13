@@ -126,7 +126,7 @@ async def test_probe_once_records_failure_and_event(
     assert alpha.last_probed_at is not None
     # The event-tape line mentions the failing provider.
     assert any(
-        line.startswith("probe-fail alpha")
+        "probe-fail alpha" in line
         for line in state_for.event_log
     )
 

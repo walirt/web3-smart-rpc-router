@@ -26,6 +26,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from collections.abc import AsyncIterator
 from typing import Any, Optional
 
@@ -288,8 +289,9 @@ class ProxyHandler:
             raw,
             self.routing_strategy,
         )
+        started = time.perf_counter()
         try:
-            body, _provider = await forward_with_failover(
+            body, provider = await forward_with_failover(
                 self.state,
                 route_cfg,
                 client,
@@ -301,6 +303,10 @@ class ProxyHandler:
             return web.json_response(
                 {"error": "no healthy upstream"}, status=503
             )
+        method_value = raw.get("method")
+        method = method_value if isinstance(method_value, str) else "<unknown>"
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        await self.state.record_event(f"request {method} -> {provider} ({latency_ms:.0f}ms)")
         return web.json_response(body, status=200)
 
 
@@ -376,6 +382,8 @@ async def main_async(cfg_path: str, with_tui: bool = False) -> None:
         method_routes=cfg.method_routes,
         listen_host=cfg.global_.listen_host,
         listen_port=cfg.global_.listen_port,
+        probe_interval_seconds=cfg.global_.probe_interval_seconds,
+        request_timeout_seconds=cfg.global_.request_timeout_seconds,
     )
     stop = asyncio.Event()
 

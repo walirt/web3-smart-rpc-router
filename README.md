@@ -265,8 +265,8 @@ Dashboard panels:
 - Method Routing: method-specific provider subsets and optional strategy overrides.
 - Traffic & Performance: current TPS, failover count, total requests, and an
   automatic traffic-shift hint.
-- Live Self-Healing Logs: timestamped probe failures, failovers, and request
-  events.
+- Live Request Routing: timestamped request-to-provider routing events, with
+  probe failures and failovers kept as operational context.
 
 The UI is implemented in `ui/dashboard.py` with `rich.layout.Layout`,
 `rich.panel.Panel`, and `rich.table.Table`.
@@ -340,7 +340,7 @@ mypy --strict core ui
 Current verified result:
 
 ```text
-108 passed
+112 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found
