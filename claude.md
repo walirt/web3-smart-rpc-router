@@ -116,18 +116,3 @@ After test runs, remove `.pytest_tmp` if it was created.
   README files.
 - Keep examples synchronized with `config.yaml` and implemented schema fields.
 - Document TODO-only ideas as TODOs, not as working configuration fields.
-
-## Git Discipline
-
-- Commit messages use Conventional Commits, for example `feat:`, `fix:`, `docs:`,
-  `test:`, or `chore:`.
-- Keep commits small and reviewable.
-- Do not commit local-only generated files such as `.pytest_tmp`, `.pytest_cache*`,
-  `.mypy_cache`, `.ruff_cache`, or `.coverage`.
-- If the user asks for Claude metadata, commit with:
-
-```bash
-GIT_AUTHOR_NAME="Claude" GIT_AUTHOR_EMAIL="claude@anthropic.com" \
-GIT_COMMITTER_NAME="Claude" GIT_COMMITTER_EMAIL="claude@anthropic.com" \
-git commit -m "<message>"
-```
