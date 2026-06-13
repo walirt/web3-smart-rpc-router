@@ -88,7 +88,6 @@ global:
   probe_interval_seconds: 5.0
   request_timeout_seconds: 10.0
   routing_strategy: priority
-  max_retries: 3
 
 method_routes:
   eth_getLogs:
@@ -99,7 +98,6 @@ rpc_nodes:
   - provider: cloudflare-eth
     url: https://cloudflare-ethereum.com
     priority: 1
-    weight: 1
     headers: {}
 ```
 
@@ -135,13 +133,11 @@ python -m core.router config.yaml --with-tui
 | `probe_interval_seconds` | `global` | 后台健康探测的间隔 |
 | `request_timeout_seconds` | `global` | 上游请求超时，也是退避计算的基础 |
 | `routing_strategy` | `global` | 可选 `priority`、`round_robin`、`lowest_latency`、`failover` |
-| `max_retries` | `global` | 配置契约中保留的重试预算字段 |
 | `method_routes.<method>.providers` | `method_routes` | 某个 JSON-RPC 方法允许使用的 provider 名称 |
 | `method_routes.<method>.routing_strategy` | `method_routes` | 该方法可选的策略覆盖 |
 | `provider` | `rpc_nodes[]` | 上游节点的唯一名称，也用于状态和 TUI 展示 |
 | `url` | `rpc_nodes[]` | 上游 JSON-RPC HTTP(S) 地址 |
 | `priority` | `rpc_nodes[]` | 数值越小优先级越高 |
-| `weight` | `rpc_nodes[]` | 配置契约中保留的权重字段 |
 | `headers` | `rpc_nodes[]` | 发往该上游节点的可选 HTTP 请求头 |
 
 两个上游节点示例：
@@ -152,7 +148,6 @@ global:
   probe_interval_seconds: 5.0
   request_timeout_seconds: 10.0
   routing_strategy: priority
-  max_retries: 3
 
 method_routes:
   eth_getLogs:
@@ -167,26 +162,23 @@ rpc_nodes:
   - provider: archive
     url: https://primary.example/rpc
     priority: 1
-    weight: 1
     headers: {}
 
   - provider: tx-broadcast
     url: https://tx.example/rpc
     priority: 2
-    weight: 1
     headers: {}
 
   - provider: fallback
     url: https://fallback.example/rpc
     priority: 3
-    weight: 1
     headers:
       X-Demo: local-router
 ```
 
 配置校验规则：
 
-- 顶层只允许 `global` 和 `rpc_nodes`。
+- 顶层只允许 `global`、`method_routes` 和 `rpc_nodes`。
 - 节点和全局配置中的未知字段都会被拒绝。
 - provider 名称和 priority 必须唯一。
 - `method_routes` 只能引用 `rpc_nodes` 中已经声明的 provider。
@@ -337,7 +329,7 @@ mypy --strict core ui
 当前验证结果：
 
 ```text
-107 passed
+108 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found
@@ -435,6 +427,8 @@ python -m pytest -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local \
 TODO:
 
 - 增加完整 WebSocket 代理能力，支持 `ws://` 和 `wss://` 上游。
+- 增加加权路由能力，并在真正使用时重新引入 `rpc_nodes[].weight`。
+- 增加重试预算配置，并在真正生效时重新引入 `global.max_retries`。
 
 ## License
 

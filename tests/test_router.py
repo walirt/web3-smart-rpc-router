@@ -51,7 +51,6 @@ def base_global() -> GlobalSettings:
         probe_interval_seconds=60.0,
         request_timeout_seconds=10.0,
         routing_strategy=RoutingStrategy.PRIORITY,
-        max_retries=3,
     )
 
 
@@ -61,7 +60,6 @@ def alpha_node() -> RpcNode:
         provider="alpha",
         url="https://alpha.test/rpc",
         priority=1,
-        weight=1,
         headers={},
     )
 
@@ -72,7 +70,6 @@ def beta_node() -> RpcNode:
         provider="beta",
         url="https://beta.test/rpc",
         priority=2,
-        weight=1,
         headers={},
     )
 

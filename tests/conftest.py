@@ -23,17 +23,15 @@ import yaml
 def valid_global_dict() -> dict[str, Any]:
     """A minimal valid ``global`` block.
 
-    All four fields required by :class:`core.models.GlobalSettings` are
-    populated with in-range values; ``max_retries`` matches the
-    documented default so a test that builds a full config from this
-    fixture plus a single node is guaranteed to round-trip.
+    All fields required by :class:`core.models.GlobalSettings` are
+    populated with in-range values so a test that builds a full config
+    from this fixture plus a single node is guaranteed to round-trip.
     """
     return {
         "listen_port": 8545,
         "probe_interval_seconds": 5.0,
         "request_timeout_seconds": 10.0,
         "routing_strategy": "round_robin",
-        "max_retries": 3,
     }
 
 
@@ -41,15 +39,13 @@ def valid_global_dict() -> dict[str, Any]:
 def valid_node_dict() -> dict[str, Any]:
     """A minimal valid single ``rpc_nodes`` entry.
 
-    All optional fields (``weight``, ``headers``) are pinned to their
-    documented defaults so tests can compare against an explicit
-    "nothing was added" baseline.
+    Optional ``headers`` are pinned to their documented default so tests
+    can compare against an explicit "nothing was added" baseline.
     """
     return {
         "provider": "test-provider",
         "url": "https://example.com",
         "priority": 1,
-        "weight": 1,
         "headers": {},
     }
 

@@ -51,21 +51,18 @@ def integration_config(tmp_path: Path) -> Path:
             "probe_interval_seconds": 60.0,
             "request_timeout_seconds": 2.0,
             "routing_strategy": "priority",
-            "max_retries": 3,
         },
         "rpc_nodes": [
             {
                 "provider": "alpha",
                 "url": "https://alpha.test/rpc",
                 "priority": 1,
-                "weight": 1,
                 "headers": {},
             },
             {
                 "provider": "beta",
                 "url": "https://beta.test/rpc",
                 "priority": 2,
-                "weight": 1,
                 "headers": {},
             },
         ],

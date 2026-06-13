@@ -66,7 +66,6 @@ class GlobalSettings(BaseModel):
     probe_interval_seconds: float = Field(..., gt=0)
     request_timeout_seconds: float = Field(..., gt=0)
     routing_strategy: RoutingStrategy
-    max_retries: int = Field(3, ge=1)
 
 
 class RpcNode(BaseModel):
@@ -77,7 +76,6 @@ class RpcNode(BaseModel):
     provider: str = Field(..., min_length=1)
     url: HttpUrlStr
     priority: int = Field(..., ge=1)
-    weight: int = Field(1, ge=1)
     headers: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("provider", mode="before")

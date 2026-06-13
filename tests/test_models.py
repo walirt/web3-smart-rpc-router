@@ -30,13 +30,11 @@ def test_valid_full_config_builds(valid_global_dict, valid_node_dict):
     assert cfg.global_.probe_interval_seconds == 5.0
     assert cfg.global_.request_timeout_seconds == 10.0
     assert cfg.global_.routing_strategy == RoutingStrategy.ROUND_ROBIN
-    assert cfg.global_.max_retries == 3
     assert len(cfg.rpc_nodes) == 1
     assert cfg.method_routes == {}
     assert cfg.rpc_nodes[0].provider == "test-provider"
     assert cfg.rpc_nodes[0].url == "https://example.com"
     assert cfg.rpc_nodes[0].priority == 1
-    assert cfg.rpc_nodes[0].weight == 1
     assert cfg.rpc_nodes[0].headers == {}
 
 
@@ -118,7 +116,6 @@ def test_invalid_routing_strategy_raises():
         "probe_interval_seconds": 5.0,
         "request_timeout_seconds": 10.0,
         "routing_strategy": "magic",
-        "max_retries": 3,
     }
 
     with pytest.raises(ValidationError):
@@ -139,6 +136,15 @@ def test_empty_listen_host_raises(valid_global_dict) -> None:
     """listen_host must not be an empty string."""
     g = dict(valid_global_dict)
     g["listen_host"] = ""
+
+    with pytest.raises(ValidationError):
+        GlobalSettings.model_validate(g)
+
+
+def test_global_max_retries_extra_rejected(valid_global_dict) -> None:
+    """max_retries is reserved for future work and is not accepted yet."""
+    g = dict(valid_global_dict)
+    g["max_retries"] = 3
 
     with pytest.raises(ValidationError):
         GlobalSettings.model_validate(g)
@@ -224,10 +230,10 @@ def test_extra_unknown_top_level_key_rejected(valid_global_dict, valid_node_dict
         RouterConfig.model_validate(raw)
 
 
-def test_weight_zero_raises(valid_node_dict):
-    """weight=0 violates the ge=1 constraint."""
+def test_node_weight_extra_rejected(valid_node_dict):
+    """weight is reserved for future work and is not accepted yet."""
     node = dict(valid_node_dict)
-    node["weight"] = 0
+    node["weight"] = 1
 
     with pytest.raises(ValidationError):
         RpcNode.model_validate(node)

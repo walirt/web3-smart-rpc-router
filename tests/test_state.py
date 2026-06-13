@@ -32,7 +32,6 @@ def global_settings() -> GlobalSettings:
         probe_interval_seconds=5.0,
         request_timeout_seconds=10.0,
         routing_strategy=RoutingStrategy.PRIORITY,
-        max_retries=3,
     )
 
 
@@ -44,14 +43,12 @@ def two_node_config(global_settings: GlobalSettings):
             provider="alpha",
             url="https://alpha.example.com",
             priority=1,
-            weight=1,
             headers={},
         ),
         RpcNode(
             provider="beta",
             url="https://beta.example.com",
             priority=2,
-            weight=1,
             headers={},
         ),
     ]

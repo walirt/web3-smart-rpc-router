@@ -91,7 +91,6 @@ global:
   probe_interval_seconds: 5.0
   request_timeout_seconds: 10.0
   routing_strategy: priority
-  max_retries: 3
 
 method_routes:
   eth_getLogs:
@@ -102,7 +101,6 @@ rpc_nodes:
   - provider: cloudflare-eth
     url: https://cloudflare-ethereum.com
     priority: 1
-    weight: 1
     headers: {}
 ```
 
@@ -138,13 +136,11 @@ Field reference:
 | `probe_interval_seconds` | `global` | How often the background prober checks each upstream |
 | `request_timeout_seconds` | `global` | Upstream request timeout and backoff basis |
 | `routing_strategy` | `global` | One of `priority`, `round_robin`, `lowest_latency`, `failover` |
-| `max_retries` | `global` | Reserved retry budget in the config contract |
 | `method_routes.<method>.providers` | `method_routes` | Provider names allowed for a specific JSON-RPC method |
 | `method_routes.<method>.routing_strategy` | `method_routes` | Optional strategy override for that method |
 | `provider` | `rpc_nodes[]` | Unique display and state key for the upstream |
 | `url` | `rpc_nodes[]` | Upstream JSON-RPC HTTP(S) endpoint |
 | `priority` | `rpc_nodes[]` | Lower number means higher priority |
-| `weight` | `rpc_nodes[]` | Reserved weight field in the config contract |
 | `headers` | `rpc_nodes[]` | Optional HTTP headers sent to that upstream |
 
 Example with two upstreams:
@@ -155,7 +151,6 @@ global:
   probe_interval_seconds: 5.0
   request_timeout_seconds: 10.0
   routing_strategy: priority
-  max_retries: 3
 
 method_routes:
   eth_getLogs:
@@ -170,26 +165,23 @@ rpc_nodes:
   - provider: archive
     url: https://primary.example/rpc
     priority: 1
-    weight: 1
     headers: {}
 
   - provider: tx-broadcast
     url: https://tx.example/rpc
     priority: 2
-    weight: 1
     headers: {}
 
   - provider: fallback
     url: https://fallback.example/rpc
     priority: 3
-    weight: 1
     headers:
       X-Demo: local-router
 ```
 
 Validation rules are strict:
 
-- Top-level keys outside `global` and `rpc_nodes` are rejected.
+- Top-level keys outside `global`, `method_routes`, and `rpc_nodes` are rejected.
 - Unknown node/global fields are rejected.
 - Provider names and priorities must be unique.
 - `method_routes` may only reference providers declared in `rpc_nodes`.
@@ -348,7 +340,7 @@ mypy --strict core ui
 Current verified result:
 
 ```text
-107 passed
+108 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found
@@ -447,6 +439,8 @@ Not included:
 TODO:
 
 - Add full WebSocket proxy support for `ws://` and `wss://` upstreams.
+- Add weighted routing support and reintroduce `rpc_nodes[].weight` when it is used.
+- Add a retry-budget setting and reintroduce `global.max_retries` when it is enforced.
 
 ## License
 
