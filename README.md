@@ -268,8 +268,8 @@ never mutates request flow.
 
 Dashboard panels:
 
-- Header: active status and uptime.
-- Node Health: provider, status, ping, strategy, quota bar, and success-rate estimate.
+- Header: active status, uptime, global routing strategy, and listen port.
+- Node Health: provider, status, ping, quota bar, and success-rate estimate.
 - Method Routing: method-specific provider subsets and optional strategy overrides.
 - Traffic & Performance: current TPS, failover count, total requests, and an
   automatic traffic-shift hint.
@@ -348,7 +348,7 @@ mypy --strict core ui
 Current verified result:
 
 ```text
-107 passed
+108 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found

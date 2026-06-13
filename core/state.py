@@ -71,6 +71,9 @@ class RouterState:
 
     nodes: dict[str, NodeStats] = field(default_factory=dict)
     method_routes: dict[str, dict[str, object]] = field(default_factory=dict)
+    routing_strategy: RoutingStrategy = RoutingStrategy.PRIORITY
+    listen_host: str = "127.0.0.1"
+    listen_port: int | None = None
     round_robin_index: int = 0
     total_requests: int = 0
     total_success: int = 0
@@ -106,9 +109,14 @@ class RouterState:
         rpc_nodes: Iterable[RpcNode],
         routing_strategy: RoutingStrategy = RoutingStrategy.PRIORITY,
         method_routes: dict[str, MethodRoute] | None = None,
+        listen_host: str = "127.0.0.1",
+        listen_port: int | None = None,
     ) -> "RouterState":
         """Build a fresh :class:`RouterState` seeded from ``rpc_nodes``."""
         state = cls()
+        state.routing_strategy = routing_strategy
+        state.listen_host = listen_host
+        state.listen_port = listen_port
         for node in rpc_nodes:
             state.nodes[node.provider] = NodeStats(
                 provider=node.provider,
@@ -199,6 +207,9 @@ class RouterState:
         return {
             "nodes": copy.deepcopy(self.nodes),
             "method_routes": copy.deepcopy(self.method_routes),
+            "routing_strategy": self.routing_strategy,
+            "listen_host": self.listen_host,
+            "listen_port": self.listen_port,
             "round_robin_index": self.round_robin_index,
             "total_requests": self.total_requests,
             "total_success": self.total_success,

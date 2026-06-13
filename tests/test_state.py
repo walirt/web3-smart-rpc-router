@@ -241,12 +241,17 @@ async def test_from_config_seeds_nodes(global_settings, two_node_config) -> None
         two_node_config,
         global_settings.routing_strategy,
         method_routes,
+        listen_host="0.0.0.0",
+        listen_port=8545,
     )
     assert set(state.nodes) == {"alpha", "beta"}
     assert state.nodes["alpha"].provider == "alpha"
     assert state.nodes["alpha"].url == "https://alpha.example.com"
     assert state.nodes["alpha"].priority == 1
     assert state.nodes["alpha"].routing_strategy is global_settings.routing_strategy
+    assert state.routing_strategy is global_settings.routing_strategy
+    assert state.listen_host == "0.0.0.0"
+    assert state.listen_port == 8545
     assert state.nodes["alpha"].healthy is True
     # Counter / log fields stay at their zero defaults.
     assert state.total_requests == 0
@@ -298,5 +303,8 @@ def test_snapshot_deep_copies_nodes_and_event_log() -> None:
             "routing_strategy": RoutingStrategy.PRIORITY,
         }
     }
+    assert snap["routing_strategy"] is RoutingStrategy.PRIORITY
+    assert snap["listen_host"] == "127.0.0.1"
+    assert snap["listen_port"] is None
     snap["event_log"].append("y")
     assert list(state.event_log) == ["x"]

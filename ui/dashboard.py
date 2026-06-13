@@ -39,7 +39,7 @@ def render_frame(snapshot: dict[str, Any]) -> Layout:
     methods_size = max(5, min(10, len(method_routes) + 4))
     layout = Layout()
     layout.split_column(
-        Layout(name="header", size=3),
+        Layout(name="header", size=4),
         Layout(name="nodes", size=nodes_size),
         Layout(name="methods", size=methods_size),
         Layout(name="traffic", size=5),
@@ -56,10 +56,16 @@ def render_frame(snapshot: dict[str, Any]) -> Layout:
 def _build_header(snapshot: dict[str, Any]) -> Panel:
     """Build the title/status header."""
     uptime = max(0.0, time.monotonic() - float(snapshot.get("started_at", time.monotonic())))
+    routing_strategy = _format_strategy_value(
+        snapshot.get("routing_strategy", RoutingStrategy.PRIORITY)
+    )
+    port = snapshot.get("listen_port")
     body = (
         f"🚀 [bold {COLOR_CYAN}]Web3 Smart RPC Router (v1.0)[/] | "
         f"Status: [[{COLOR_NEON_GREEN}]🟢 ACTIVE[/]] | "
-        f"Uptime: {_format_uptime(uptime)}"
+        f"Uptime: {_format_uptime(uptime)}\n"
+        f"ROUTING STRATEGY: [bold {COLOR_CYAN}]{routing_strategy}[/] "
+        f"Port: [bold {COLOR_CYAN}]{port if port is not None else '-'}[/]"
     )
     return Panel(body, box=box.ROUNDED, border_style=COLOR_CYAN, style=f"on {COLOR_BG}")
 
@@ -77,7 +83,6 @@ def _build_nodes(snapshot: dict[str, Any]) -> Panel:
     table.add_column("PROVIDER", style="bold")
     table.add_column("STATUS", justify="center")
     table.add_column("PING", justify="right")
-    table.add_column("ROUTING STRATEGY")
     table.add_column("QUOTA USED")
     table.add_column("SUCCESS RATE", justify="center")
 
@@ -88,7 +93,6 @@ def _build_nodes(snapshot: dict[str, Any]) -> Panel:
             provider,
             _format_status(stats),
             _format_ping(stats),
-            _format_strategy(stats.routing_strategy),
             _quota_bar(stats),
             _success_rate(stats),
         )
@@ -212,6 +216,13 @@ def _format_route_strategy(strategy: object) -> str:
     return str(strategy)
 
 
+def _format_strategy_value(strategy: object) -> str:
+    """Render the global routing strategy as the YAML-facing value."""
+    if isinstance(strategy, RoutingStrategy):
+        return strategy.value
+    return str(strategy)
+
+
 def _format_uptime(seconds: float) -> str:
     """Render seconds as HH:MM:SS."""
     total = int(seconds)
@@ -314,6 +325,9 @@ async def dashboard_loop(
 def _build_demo_state() -> RouterState:
     """Build a fake :class:`RouterState` for the standalone demo."""
     state = RouterState()
+    state.routing_strategy = RoutingStrategy.PRIORITY
+    state.listen_host = "0.0.0.0"
+    state.listen_port = 8545
     state.nodes["Alchemy-Free"] = NodeStats(
         provider="Alchemy-Free",
         url="https://alchemy.example/rpc",

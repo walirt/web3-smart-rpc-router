@@ -371,9 +371,11 @@ async def main_async(cfg_path: str, with_tui: bool = False) -> None:
 
     cfg = load_config(cfg_path)
     state = RouterState.from_config(
-        cfg.rpc_nodes,
-        cfg.global_.routing_strategy,
-        cfg.method_routes,
+        rpc_nodes=cfg.rpc_nodes,
+        routing_strategy=cfg.global_.routing_strategy,
+        method_routes=cfg.method_routes,
+        listen_host=cfg.global_.listen_host,
+        listen_port=cfg.global_.listen_port,
     )
     stop = asyncio.Event()
 

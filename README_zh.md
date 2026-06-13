@@ -261,8 +261,8 @@ HTTP 状态码为 `503`。
 
 大盘包含：
 
-- Header：运行状态和 uptime。
-- Node Health：provider、status、ping、strategy、quota bar、success-rate estimate。
+- Header：运行状态、uptime、全局 routing strategy 和监听端口。
+- Node Health：provider、status、ping、quota bar、success-rate estimate。
 - Method Routing：按方法配置的 provider 子集和可选策略覆盖。
 - Traffic & Performance：当前 TPS、故障转移次数、总请求数和流量迁移提示。
 - Live Self-Healing Logs：探测失败、故障转移和请求事件日志。
@@ -337,7 +337,7 @@ mypy --strict core ui
 当前验证结果：
 
 ```text
-107 passed
+108 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found

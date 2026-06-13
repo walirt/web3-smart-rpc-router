@@ -31,6 +31,7 @@ from ui.dashboard import (
     _build_method_routes,
     _demo_main,
     _format_route_strategy,
+    _format_strategy_value,
     _format_log_line,
     _format_status,
     dashboard_loop,
@@ -70,6 +71,8 @@ def state_for_dashboard() -> RouterState:
     state.total_success = 5
     state.total_failovers = 2
     state.tps_1s = 1.0
+    state.routing_strategy = RoutingStrategy.PRIORITY
+    state.listen_port = 8545
     state.method_routes = {
         "eth_getLogs": {
             "providers": ["alpha"],
@@ -192,6 +195,8 @@ def test_render_frame_uses_requested_dashboard_labels(
     """The rendered frame exposes the requested dashboard labels."""
     text = _flatten_text(render_frame(state_for_dashboard.snapshot()))
     assert "Web3 Smart RPC Router (v1.0)" in text
+    assert "ROUTING STRATEGY: priority" in text
+    assert "Port: 8545" in text
     assert "节点健康(Node Health)" in text
     assert "方法分流(Method Routing)" in text
     assert "全局流量统计" in text
@@ -214,6 +219,12 @@ def test_route_strategy_formatter_handles_string_and_unknown_values() -> None:
     assert _format_route_strategy("round_robin") == "Round Robin"
     assert _format_route_strategy("custom") == "custom"
     assert _format_route_strategy(123) == "123"
+
+
+def test_global_strategy_formatter_uses_yaml_value() -> None:
+    """The header shows the config-facing strategy value."""
+    assert _format_strategy_value(RoutingStrategy.PRIORITY) == "priority"
+    assert _format_strategy_value("custom") == "custom"
 
 
 def test_status_formatter_handles_429_and_generic_error() -> None:
@@ -326,6 +337,8 @@ def test_build_demo_state_populates_two_nodes() -> None:
     """``_build_demo_state`` returns a state matching the sample dashboard."""
     state = _build_demo_state()
     assert set(state.nodes) == {"Alchemy-Free", "Infura-Main", "QuickNode", "Local-Node"}
+    assert state.routing_strategy is RoutingStrategy.PRIORITY
+    assert state.listen_port == 8545
     assert set(state.method_routes) == {"eth_getLogs", "eth_sendRawTransaction"}
     assert len(state.event_log) >= 1
 
