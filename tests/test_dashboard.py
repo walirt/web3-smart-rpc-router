@@ -201,6 +201,8 @@ def test_render_frame_uses_requested_dashboard_labels(
     assert "全局流量统计" in text
     assert "实时自愈日志" in text
     assert "PROVIDER" in text
+    assert "FAILURE PRESSURE" in text
+    assert "QUOTA USED" not in text
     assert "METHOD" in text
     assert "eth_getLogs" in text
     assert "SUCCESS RATE" in text

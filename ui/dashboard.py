@@ -83,7 +83,7 @@ def _build_nodes(snapshot: dict[str, Any]) -> Panel:
     table.add_column("PROVIDER", style="bold")
     table.add_column("STATUS", justify="center")
     table.add_column("PING", justify="right")
-    table.add_column("QUOTA USED")
+    table.add_column("FAILURE PRESSURE")
     table.add_column("SUCCESS RATE", justify="center")
 
     nodes: dict[str, NodeStats] = snapshot.get("nodes", {})
@@ -93,7 +93,7 @@ def _build_nodes(snapshot: dict[str, Any]) -> Panel:
             provider,
             _format_status(stats),
             _format_ping(stats),
-            _quota_bar(stats),
+            _failure_pressure_bar(stats),
             _success_rate(stats),
         )
     return Panel(
@@ -226,8 +226,8 @@ def _format_ping(stats: NodeStats) -> str:
     return f"{stats.latency_ms:>4.0f} ms"
 
 
-def _quota_bar(stats: NodeStats) -> str:
-    """Render a compact quota-use bar from recent failure pressure."""
+def _failure_pressure_bar(stats: NodeStats) -> str:
+    """Render a compact pressure bar from consecutive failures."""
     if not stats.healthy and stats.latency_ms is None:
         return "-"
     filled = min(10, max(1, stats.consecutive_failures + 1))
