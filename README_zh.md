@@ -316,6 +316,13 @@ core.models.RouterConfig
 - 测试使用 mocked upstream，不依赖真实公共 RPC 节点。
 - 不写入持久化秘密、不引入数据库状态。
 
+## 开发说明
+
+额外实现说明放在 `docs/` 目录：
+
+- `docs/ai-usage.md`：CyOps 辅助构建流程和验证门槛。
+- `docs/technical-innovation.md`：故障转移、方法路由、快照隔离、退避策略，以及免费 RPC 与自建 RPC 的取舍。
+
 ## 验证
 
 所有命令都从仓库根目录运行：
@@ -365,6 +372,9 @@ python -m pytest -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local \
 |   |-- prober.py       # Background upstream health checks
 |   |-- router.py       # aiohttp proxy, routing, failover, app entry point
 |   `-- state.py        # In-memory state, locking, snapshots
+|-- docs/
+|   |-- ai-usage.md
+|   `-- technical-innovation.md
 |-- ui/
 |   |-- __init__.py
 |   `-- dashboard.py    # Rich terminal dashboard

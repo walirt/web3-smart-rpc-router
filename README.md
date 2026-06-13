@@ -327,6 +327,13 @@ The implementation emphasizes reproducibility and defensive behavior:
 - Tests mock upstream RPC traffic; no test depends on real public endpoints.
 - No persistent secrets or database state are written.
 
+## Development Notes
+
+Additional implementation notes are kept in `docs/`:
+
+- `docs/ai-usage.md`: CyOps-assisted build workflow and verification gates.
+- `docs/technical-innovation.md`: design notes for failover, routing, snapshots, backoff, and the free-RPC vs self-hosted RPC tradeoff.
+
 ## Verification
 
 Run all commands from the repository root.
@@ -377,6 +384,9 @@ python -m pytest -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local \
 |   |-- prober.py       # Background upstream health checks
 |   |-- router.py       # aiohttp proxy, routing, failover, app entry point
 |   `-- state.py        # In-memory state, locking, snapshots
+|-- docs/
+|   |-- ai-usage.md
+|   `-- technical-innovation.md
 |-- ui/
 |   |-- __init__.py
 |   `-- dashboard.py    # Rich terminal dashboard
