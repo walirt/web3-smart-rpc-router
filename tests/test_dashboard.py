@@ -30,7 +30,6 @@ from ui.dashboard import (
     _build_demo_state,
     _build_method_routes,
     _demo_main,
-    _format_route_strategy,
     _format_strategy_value,
     _format_log_line,
     _format_status,
@@ -195,7 +194,7 @@ def test_render_frame_uses_requested_dashboard_labels(
     """The rendered frame exposes the requested dashboard labels."""
     text = _flatten_text(render_frame(state_for_dashboard.snapshot()))
     assert "Web3 Smart RPC Router (v1.0)" in text
-    assert "ROUTING STRATEGY: priority" in text
+    assert "Routing Strategy: priority" in text
     assert "Port: 8545" in text
     assert "节点健康(Node Health)" in text
     assert "方法分流(Method Routing)" in text
@@ -213,17 +212,10 @@ def test_method_routes_panel_handles_empty_routes() -> None:
     assert "no method-specific routes" in text
 
 
-def test_route_strategy_formatter_handles_string_and_unknown_values() -> None:
-    """Route strategy labels are stable for enum, string, and fallback values."""
-    assert _format_route_strategy(RoutingStrategy.FAILOVER) == "Fallback"
-    assert _format_route_strategy("round_robin") == "Round Robin"
-    assert _format_route_strategy("custom") == "custom"
-    assert _format_route_strategy(123) == "123"
-
-
 def test_global_strategy_formatter_uses_yaml_value() -> None:
     """The header shows the config-facing strategy value."""
     assert _format_strategy_value(RoutingStrategy.PRIORITY) == "priority"
+    assert _format_strategy_value(RoutingStrategy.FAILOVER) == "failover"
     assert _format_strategy_value("custom") == "custom"
 
 

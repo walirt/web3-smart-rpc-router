@@ -348,7 +348,7 @@ mypy --strict core ui
 Current verified result:
 
 ```text
-108 passed
+107 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found

@@ -64,7 +64,7 @@ def _build_header(snapshot: dict[str, Any]) -> Panel:
         f"🚀 [bold {COLOR_CYAN}]Web3 Smart RPC Router (v1.0)[/] | "
         f"Status: [[{COLOR_NEON_GREEN}]🟢 ACTIVE[/]] | "
         f"Uptime: {_format_uptime(uptime)}\n"
-        f"ROUTING STRATEGY: [bold {COLOR_CYAN}]{routing_strategy}[/] "
+        f"Routing Strategy: [bold {COLOR_CYAN}]{routing_strategy}[/] "
         f"Port: [bold {COLOR_CYAN}]{port if port is not None else '-'}[/]"
     )
     return Panel(body, box=box.ROUNDED, border_style=COLOR_CYAN, style=f"on {COLOR_BG}")
@@ -130,7 +130,7 @@ def _build_method_routes(snapshot: dict[str, Any]) -> Panel:
     )
     table.add_column("METHOD", style="bold")
     table.add_column("PROVIDERS")
-    table.add_column("ROUTING STRATEGY")
+    table.add_column("Routing Strategy")
 
     for method in sorted(method_routes):
         route = method_routes[method]
@@ -141,7 +141,7 @@ def _build_method_routes(snapshot: dict[str, Any]) -> Panel:
         table.add_row(
             method,
             provider_labels or "-",
-            _format_route_strategy(strategy),
+            _format_strategy_value(strategy),
         )
 
     return Panel(
@@ -191,29 +191,6 @@ def _build_logs(snapshot: dict[str, Any]) -> Panel:
         border_style=COLOR_MAGENTA,
         style=f"on {COLOR_BG}",
     )
-
-
-def _format_strategy(strategy: RoutingStrategy) -> str:
-    """Render a routing strategy as a dashboard label."""
-    labels = {
-        RoutingStrategy.PRIORITY: "Default (All)",
-        RoutingStrategy.ROUND_ROBIN: "Round Robin",
-        RoutingStrategy.LOWEST_LATENCY: "Lowest Latency",
-        RoutingStrategy.FAILOVER: "Fallback",
-    }
-    return labels[strategy]
-
-
-def _format_route_strategy(strategy: object) -> str:
-    """Render a route strategy value stored in a snapshot."""
-    if isinstance(strategy, RoutingStrategy):
-        return _format_strategy(strategy)
-    if isinstance(strategy, str):
-        try:
-            return _format_strategy(RoutingStrategy(strategy))
-        except ValueError:
-            return strategy
-    return str(strategy)
 
 
 def _format_strategy_value(strategy: object) -> str:
