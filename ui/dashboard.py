@@ -67,7 +67,7 @@ def _build_header(snapshot: dict[str, Any]) -> Panel:
     grid.add_column(ratio=2, no_wrap=True)
     grid.add_column(ratio=2, no_wrap=True)
     grid.add_row(
-        f"🚀 [bold {COLOR_CYAN}]Web3 Smart RPC Router (v1.0)[/]",
+        f"🚀 [bold {COLOR_CYAN}]Web3 Smart RPC Router[/]",
         f"Strategy: [bold {COLOR_CYAN}]{routing_strategy}[/]",
         f"Bind: [bold {COLOR_CYAN}]{bind}[/]",
     )
@@ -89,11 +89,11 @@ def _build_nodes(snapshot: dict[str, Any]) -> Panel:
         pad_edge=False,
         header_style=f"bold {COLOR_CYAN}",
     )
-    table.add_column("PROVIDER", style="bold", ratio=3)
-    table.add_column("STATUS", justify="center", ratio=1)
-    table.add_column("PING", justify="right", ratio=1)
-    table.add_column("PRESSURE", ratio=2)
-    table.add_column("SUCCESS RATE", justify="center", ratio=2)
+    table.add_column("PROVIDER", style="bold", ratio=4, no_wrap=True)
+    table.add_column("STATUS", justify="center", ratio=1, no_wrap=True)
+    table.add_column("PING", justify="center", ratio=1, no_wrap=True)
+    table.add_column("PRESSURE", justify="center", ratio=2, no_wrap=True)
+    table.add_column("SUCCESS RATE", justify="center", ratio=2, no_wrap=True)
 
     nodes: dict[str, NodeStats] = snapshot.get("nodes", {})
     for provider in sorted(nodes, key=lambda p: (nodes[p].priority, p)):

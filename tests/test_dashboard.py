@@ -193,7 +193,8 @@ def test_render_frame_uses_requested_dashboard_labels(
 ) -> None:
     """The rendered frame exposes the requested dashboard labels."""
     text = _flatten_text(render_frame(state_for_dashboard.snapshot()))
-    assert "Web3 Smart RPC Router (v1.0)" in text
+    assert "Web3 Smart RPC Router" in text
+    assert "Web3 Smart RPC Router (v1.0)" not in text
     assert "Strategy: priority" in text
     assert "Bind: 127.0.0.1:8545" in text
     assert "Status:" in text
