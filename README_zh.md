@@ -83,6 +83,7 @@ curl http://127.0.0.1:8545/healthz
 
 ```yaml
 global:
+  listen_host: 0.0.0.0
   listen_port: 8545
   probe_interval_seconds: 5.0
   request_timeout_seconds: 10.0
@@ -105,19 +106,21 @@ rpc_nodes:
 ### 如何使用 `config.yaml`
 
 1. 复制或直接编辑仓库根目录下的 `config.yaml`。
-2. 设置 `global.listen_port`，它决定本地路由器监听的端口。
-3. 设置 `global.routing_strategy`，它决定路由器如何选择上游节点。
-4. 在 `rpc_nodes` 中为每个上游 RPC 服务商添加一条节点配置。
-5. 每个节点都需要唯一的 `provider` 名称和唯一的 `priority` 数值。
-6. 如有需要，在 `method_routes` 中为特定 JSON-RPC 方法指定 provider 子集
+2. 设置 `global.listen_host`：`127.0.0.1` 表示仅本机访问，`0.0.0.0`
+   表示监听所有本机网络接口。
+3. 设置 `global.listen_port`，它决定本地路由器监听的端口。
+4. 设置 `global.routing_strategy`，它决定路由器如何选择上游节点。
+5. 在 `rpc_nodes` 中为每个上游 RPC 服务商添加一条节点配置。
+6. 每个节点都需要唯一的 `provider` 名称和唯一的 `priority` 数值。
+7. 如有需要，在 `method_routes` 中为特定 JSON-RPC 方法指定 provider 子集
    或策略覆盖。
-7. 启动前先验证配置：
+8. 启动前先验证配置：
 
 ```bash
 python -m core.config config.yaml
 ```
 
-8. 使用该配置启动路由器：
+9. 使用该配置启动路由器：
 
 ```bash
 python -m core.router config.yaml --with-tui
@@ -127,6 +130,7 @@ python -m core.router config.yaml --with-tui
 
 | 字段 | 位置 | 含义 |
 |---|---|---|
+| `listen_host` | `global` | 本地绑定地址；`127.0.0.1` 仅本机访问，`0.0.0.0` 监听所有本机网络接口 |
 | `listen_port` | `global` | 路由器暴露的本地 HTTP 端口 |
 | `probe_interval_seconds` | `global` | 后台健康探测的间隔 |
 | `request_timeout_seconds` | `global` | 上游请求超时，也是退避计算的基础 |
@@ -333,7 +337,7 @@ mypy --strict core ui
 当前验证结果：
 
 ```text
-105 passed
+107 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found

@@ -86,6 +86,7 @@ Expected response:
 
 ```yaml
 global:
+  listen_host: 0.0.0.0
   listen_port: 8545
   probe_interval_seconds: 5.0
   request_timeout_seconds: 10.0
@@ -108,19 +109,21 @@ rpc_nodes:
 ### How to Use `config.yaml`
 
 1. Copy or edit `config.yaml` in the repository root.
-2. Set `global.listen_port` to the local port you want the router to expose.
-3. Set `global.routing_strategy` to choose how the router selects upstreams.
-4. Add one `rpc_nodes` entry per upstream RPC provider.
-5. Give every node a unique `provider` name and a unique `priority` number.
-6. Optionally add `method_routes` entries for JSON-RPC methods that should use
+2. Set `global.listen_host` to `127.0.0.1` for local-only access or `0.0.0.0`
+   to listen on every local interface.
+3. Set `global.listen_port` to the local port you want the router to expose.
+4. Set `global.routing_strategy` to choose how the router selects upstreams.
+5. Add one `rpc_nodes` entry per upstream RPC provider.
+6. Give every node a unique `provider` name and a unique `priority` number.
+7. Optionally add `method_routes` entries for JSON-RPC methods that should use
    a specific provider subset or strategy.
-7. Validate before running:
+8. Validate before running:
 
 ```bash
 python -m core.config config.yaml
 ```
 
-8. Start the router with that config:
+9. Start the router with that config:
 
 ```bash
 python -m core.router config.yaml --with-tui
@@ -130,6 +133,7 @@ Field reference:
 
 | Field | Where | Meaning |
 |---|---|---|
+| `listen_host` | `global` | Local bind address; use `127.0.0.1` for local-only access or `0.0.0.0` for all interfaces |
 | `listen_port` | `global` | Local HTTP port exposed by the router |
 | `probe_interval_seconds` | `global` | How often the background prober checks each upstream |
 | `request_timeout_seconds` | `global` | Upstream request timeout and backoff basis |
@@ -344,7 +348,7 @@ mypy --strict core ui
 Current verified result:
 
 ```text
-105 passed
+107 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found

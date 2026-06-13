@@ -99,7 +99,10 @@ def test_load_config_non_dict_yaml_raises(tmp_path):
 def test_format_summary_renders_ok_line():
     """_format_summary renders the one-line summary printed by the CLI."""
     cfg = load_config(SAMPLE_CONFIG)
-    assert _format_summary(cfg) == "OK: loaded 2 rpc_node(s); listen_port=8545"
+    assert (
+        _format_summary(cfg)
+        == "OK: loaded 2 rpc_node(s); listen_host=0.0.0.0; listen_port=8545"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +115,7 @@ def test_main_block_success(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["core.config", str(SAMPLE_CONFIG)])
     runpy.run_module("core.config", run_name="__main__")
     captured = capsys.readouterr()
-    assert "OK: loaded 2 rpc_node(s); listen_port=8545" in captured.out
+    assert "OK: loaded 2 rpc_node(s); listen_host=0.0.0.0; listen_port=8545" in captured.out
 
 
 def test_main_block_usage_error(monkeypatch, capsys):

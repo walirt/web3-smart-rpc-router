@@ -1,13 +1,14 @@
 # Web3 Smart RPC Router — sample configuration.
 #
 # This file exercises every required field in core/models.py: a `global`
-# block with listen_port, probe_interval_seconds, request_timeout_seconds,
-# routing_strategy, and max_retries, plus two rpc_nodes with distinct
+# block with listen_host, listen_port, probe_interval_seconds,
+# request_timeout_seconds, routing_strategy, and max_retries, plus two rpc_nodes with distinct
 # providers and distinct priorities.
 #
 # Validate with:  python -m core.config config.yaml
 
 global:
+  listen_host: 0.0.0.0
   listen_port: 8545
   probe_interval_seconds: 5.0
   request_timeout_seconds: 10.0

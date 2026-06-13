@@ -25,6 +25,7 @@ def test_valid_full_config_builds(valid_global_dict, valid_node_dict):
 
     cfg = RouterConfig.model_validate(raw)
 
+    assert cfg.global_.listen_host == "127.0.0.1"
     assert cfg.global_.listen_port == 8545
     assert cfg.global_.probe_interval_seconds == 5.0
     assert cfg.global_.request_timeout_seconds == 10.0
@@ -122,6 +123,25 @@ def test_invalid_routing_strategy_raises():
 
     with pytest.raises(ValidationError):
         GlobalSettings.model_validate(global_settings)
+
+
+def test_listen_host_accepts_all_interfaces(valid_global_dict) -> None:
+    """listen_host can bind the router to every local interface."""
+    g = dict(valid_global_dict)
+    g["listen_host"] = "0.0.0.0"
+
+    parsed = GlobalSettings.model_validate(g)
+
+    assert parsed.listen_host == "0.0.0.0"
+
+
+def test_empty_listen_host_raises(valid_global_dict) -> None:
+    """listen_host must not be an empty string."""
+    g = dict(valid_global_dict)
+    g["listen_host"] = ""
+
+    with pytest.raises(ValidationError):
+        GlobalSettings.model_validate(g)
 
 
 def test_priority_below_one_raises(valid_node_dict):

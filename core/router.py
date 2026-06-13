@@ -415,10 +415,15 @@ async def main_async(cfg_path: str, with_tui: bool = False) -> None:
         )
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, host="127.0.0.1", port=cfg.global_.listen_port)
+        site = web.TCPSite(
+            runner,
+            host=cfg.global_.listen_host,
+            port=cfg.global_.listen_port,
+        )
         await site.start()
         _LOGGER.info(
-            "router listening on http://127.0.0.1:%s (tui=%s)",
+            "router listening on http://%s:%s (tui=%s)",
+            cfg.global_.listen_host,
             cfg.global_.listen_port,
             with_tui,
         )

@@ -61,6 +61,7 @@ class GlobalSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    listen_host: str = Field("127.0.0.1", min_length=1)
     listen_port: int = Field(..., ge=1, le=65535)
     probe_interval_seconds: float = Field(..., gt=0)
     request_timeout_seconds: float = Field(..., gt=0)

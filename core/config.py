@@ -52,6 +52,7 @@ def _format_summary(config: RouterConfig) -> str:
     """Render the one-line summary printed by the ``__main__`` block."""
     return (
         f"OK: loaded {len(config.rpc_nodes)} rpc_node(s); "
+        f"listen_host={config.global_.listen_host}; "
         f"listen_port={config.global_.listen_port}"
     )
 
