@@ -17,7 +17,13 @@ import time
 import pytest
 
 from core.models import GlobalSettings, MethodRoute, RoutingStrategy, RpcNode
-from core.state import NodeStats, RouterState, format_event
+from core.state import (
+    CIRCUIT_COOLDOWN_SECONDS,
+    CIRCUIT_FAILURE_THRESHOLD,
+    NodeStats,
+    RouterState,
+    format_event,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +154,8 @@ def test_node_stats_defaults() -> None:
     assert stats.consecutive_failures == 0
     assert stats.last_error is None
     assert stats.last_probed_at is None
+    assert stats.circuit_open_until is None
+    assert stats.is_circuit_open() is False
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +284,31 @@ async def test_record_failover_appends_event_and_increments() -> None:
     await state.record_failover("alpha", "beta")
     assert state.total_failovers == 1
     assert list(state.event_log)[-1].endswith("failover alpha -> beta")
+
+
+def test_node_failure_opens_circuit_and_success_closes_it(
+    two_node_config: list[RpcNode],
+) -> None:
+    """Repeated provider failures open a cooldown circuit until a success closes it."""
+    state = RouterState.from_config(two_node_config)
+    opened_at = 100.0
+
+    for _ in range(CIRCUIT_FAILURE_THRESHOLD):
+        state.record_node_failure("alpha", "boom", when=opened_at)
+
+    alpha = state.nodes["alpha"]
+    assert alpha.healthy is False
+    assert alpha.last_error == "boom"
+    assert alpha.circuit_open_until == opened_at + CIRCUIT_COOLDOWN_SECONDS
+    assert alpha.is_circuit_open(opened_at + CIRCUIT_COOLDOWN_SECONDS - 0.1) is True
+    assert alpha.is_circuit_open(opened_at + CIRCUIT_COOLDOWN_SECONDS) is False
+
+    state.record_node_success("alpha", latency_ms=12.0)
+    assert alpha.healthy is True
+    assert alpha.latency_ms == 12.0
+    assert alpha.consecutive_failures == 0
+    assert alpha.last_error is None
+    assert alpha.circuit_open_until is None
 
 
 def test_format_event_uses_record_time(monkeypatch: pytest.MonkeyPatch) -> None:

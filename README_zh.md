@@ -31,6 +31,7 @@ client -> http://127.0.0.1:<listen_port>/ -> best available upstream RPC node
 | 存活检查接口 | 完成 | `GET /healthz -> {"ok": true}` |
 | 针对 `429` 和 `5xx` 的故障转移 | 完成 | `forward_with_failover()` 与路由测试 |
 | 网络错误、超时、异常 JSON 的故障转移 | 完成 | 使用 `aioresponses` 的上游模拟测试 |
+| 退化 provider 的 circuit breaker 冷却 | 完成 | `NodeStats.circuit_open_until`、路由和探测测试 |
 | 有上限的指数退避 | 完成 | `request_timeout_seconds / 4` 起始，`* 4` 封顶 |
 | 多种路由策略 | 完成 | `priority`, `round_robin`, `lowest_latency`, `failover` |
 | 后台健康探测 | 完成 | `core/prober.py`, `eth_blockNumber` 探测 |
@@ -313,6 +314,7 @@ core.models.RouterConfig
 - 上游请求集中在一个 `aiohttp.ClientSession`。
 - 如果调用方没有注入 upstream client，应用会通过 aiohttp cleanup context 自己创建和关闭。
 - prober 对单次 tick 的异常做隔离，一个坏节点不会停止健康检查。
+- 运行时 circuit breaker 会让连续失败的 provider 进入冷却，同时探测继续检查恢复。
 - 测试使用 mocked upstream，不依赖真实公共 RPC 节点。
 - 不写入持久化秘密、不引入数据库状态。
 
@@ -322,6 +324,7 @@ core.models.RouterConfig
 
 - `docs/ai-usage.md`：CyOps 辅助构建流程和验证门槛。
 - `docs/technical-innovation.md`：故障转移、方法路由、快照隔离、退避策略，以及免费 RPC 与自建 RPC 的取舍。
+- `docs/plans/`：配置、运行时和最终加固阶段的公开 CyOps 构建计划。
 
 ## 验证
 
@@ -336,7 +339,7 @@ mypy --strict core ui
 当前验证结果：
 
 ```text
-112 passed
+116 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found
@@ -374,6 +377,10 @@ python -m pytest -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local \
 |   `-- state.py        # In-memory state, locking, snapshots
 |-- docs/
 |   |-- ai-usage.md
+|   |-- plans/
+|   |   |-- plan-1.md
+|   |   |-- plan-2.md
+|   |   `-- plan-3.md
 |   `-- technical-innovation.md
 |-- ui/
 |   |-- __init__.py

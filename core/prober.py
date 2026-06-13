@@ -44,15 +44,12 @@ def _record_success(stats: NodeStats, latency_ms: float, when: float) -> None:
     stats.consecutive_failures = 0
     stats.last_error = None
     stats.last_probed_at = when
+    stats.circuit_open_until = None
 
 
-def _record_failure(stats: NodeStats, error: str, when: float) -> None:
+def _record_failure(state: RouterState, stats: NodeStats, error: str, when: float) -> None:
     """Update ``stats`` to reflect a failed probe call."""
-    stats.latency_ms = None
-    stats.healthy = False
-    stats.consecutive_failures += 1
-    stats.last_error = error
-    stats.last_probed_at = when
+    state.record_node_failure(stats.provider, error, when=when)
 
 
 async def probe_once(
@@ -83,7 +80,7 @@ async def probe_once(
                 if resp.status >= 400:
                     err = f"upstream returned HTTP {resp.status}"
                     async with state.transaction():
-                        _record_failure(stats, err, when)
+                        _record_failure(state, stats, err, when)
                         state.event_log.append(
                             format_event(f"probe-fail {node.provider} {err}")
                         )
@@ -98,7 +95,7 @@ async def probe_once(
         ) as exc:
             err = f"{type(exc).__name__}: {exc}"
             async with state.transaction():
-                _record_failure(stats, err, when)
+                _record_failure(state, stats, err, when)
                 state.event_log.append(
                     format_event(f"probe-fail {node.provider} {err}")
                 )

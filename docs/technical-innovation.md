@@ -5,22 +5,31 @@ implementation combines them into a focused local resilience layer for free
 public RPC users. This document highlights the technical design choices that are
 easy to miss when reviewing only the source tree.
 
-## 1. Self-Healing Forwarding Pool
+## 1. Circuit Breaker With Self-Healing Forwarding
 
-The forwarding path does not permanently trust the current health snapshot. If
-all nodes are marked unhealthy, the router still builds a self-healing candidate
-pool from the full configured provider chain and tries those nodes in priority
-order.
+The forwarding path tracks repeated provider failures and opens a short cooldown
+circuit after 3 consecutive failures. While the circuit is open, normal user
+traffic skips that provider for a 30-second cooldown instead of repeatedly
+hammering a public endpoint that is rate-limiting or returning server errors.
+
+At the same time, the router does not permanently trust a stale health snapshot.
+If every node is marked unhealthy, the proxy can still build a self-healing
+candidate pool from providers whose circuits have cooled down and try them in
+priority order.
 
 Why it matters:
 
+- Repeated failures stop turning into repeated user-facing latency.
+- Public free RPC endpoints get a cooldown window after overload or rate limits.
 - A global outage can clear before the next probe tick.
-- A stale unhealthy mark should not permanently block recovery.
-- Clients still get a chance to succeed without waiting for manual intervention.
+- A stale unhealthy mark does not permanently block recovery after cooldown.
+- Background probes can close the circuit early when a provider recovers.
 
 Relevant code:
 
-- `core/router.py`: `_self_healing_pool()`, `forward_with_failover()`
+- `core/state.py`: `NodeStats.circuit_open_until`, `record_node_failure()`
+- `core/router.py`: `_healthy_pool()`, `_recoverable_pool()`, `forward_with_failover()`
+- `core/prober.py`: probe success closes open circuits
 - `tests/test_router.py`: failover and all-unhealthy proxy behavior
 
 ## 2. Snapshot-Isolated TUI
@@ -93,6 +102,6 @@ expensive self-hosted RPC infrastructure:
 | Smart RPC Router | Low | Low | Medium-High | High |
 
 The technical novelty is not a new consensus or RPC protocol. It is the
-combination of method-aware routing, health-aware failover, self-healing fallback,
-and a read-only live dashboard in a local tool that ordinary free-RPC users can
-run without operating a full node.
+combination of method-aware routing, circuit-breaker cooldowns, health-aware
+failover, self-healing fallback, and a read-only live dashboard in a local tool
+that ordinary free-RPC users can run without operating a full node.

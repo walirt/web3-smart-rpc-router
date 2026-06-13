@@ -56,8 +56,20 @@ class NoHealthyNodeError(Exception):
 
 
 def _healthy_pool(state: RouterState, cfg: list[RpcNode]) -> list[RpcNode]:
-    """Return the subset of ``cfg`` whose :class:`NodeStats` is healthy."""
-    return [n for n in cfg if state.nodes[n.provider].healthy]
+    """Return healthy nodes whose circuit breaker is not open."""
+    return [
+        n for n in cfg
+        if state.nodes[n.provider].healthy and not state.nodes[n.provider].is_circuit_open()
+    ]
+
+
+def _recoverable_pool(state: RouterState, cfg: list[RpcNode]) -> list[RpcNode]:
+    """Return nodes eligible for a self-healing attempt.
+
+    This excludes providers that are still inside an open circuit but
+    allows cooled-down unhealthy providers to be retried by the proxy.
+    """
+    return [n for n in cfg if not state.nodes[n.provider].is_circuit_open()]
 
 
 def _latency_sort_key(state: RouterState, node: RpcNode) -> tuple[bool, float, int]:
@@ -83,7 +95,7 @@ def _attempt_order(
         return []
     healthy = _healthy_pool(state, cfg)
     if not healthy:
-        return sorted(cfg, key=lambda n: n.priority)
+        return sorted(_recoverable_pool(state, cfg), key=lambda n: n.priority)
     if routing_strategy is RoutingStrategy.ROUND_ROBIN:
         first = select_node(state, cfg, routing_strategy)
         rest = [node for node in sorted(healthy, key=lambda n: n.priority) if node != first]
@@ -215,11 +227,23 @@ async def forward_with_failover(
                 timeout=timeout,
             ) as resp:
                 if _is_transient_status(resp.status):
+                    async with state.transaction():
+                        state.record_node_failure(
+                            node.provider,
+                            f"upstream returned HTTP {resp.status}",
+                        )
                     continue
                 body = await resp.json(content_type=None)
                 if not isinstance(body, dict):
                     # Non-mapping body (e.g. JSON array or scalar): treat as failure.
+                    async with state.transaction():
+                        state.record_node_failure(
+                            node.provider,
+                            f"upstream returned non-object JSON {type(body).__name__}",
+                        )
                     continue
+                async with state.transaction():
+                    state.record_node_success(node.provider)
                 await state.record_request(success=True)
                 return body, node.provider
         except (
@@ -229,6 +253,11 @@ async def forward_with_failover(
             aiohttp.ContentTypeError,
         ) as exc:
             last_exc = exc
+            async with state.transaction():
+                state.record_node_failure(
+                    node.provider,
+                    f"{type(exc).__name__}: {exc}",
+                )
             continue
     await state.record_request(success=False)
     detail = f"last error: {last_exc!r}" if last_exc is not None else "no attempts made"

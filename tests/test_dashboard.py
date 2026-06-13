@@ -243,6 +243,14 @@ def test_seconds_formatter_compacts_header_values() -> None:
 
 def test_status_formatter_handles_429_and_generic_error() -> None:
     """Status labels distinguish rate-limit degradation from generic errors."""
+    open_circuit = NodeStats(
+        provider="open",
+        url="https://open.test",
+        priority=1,
+        routing_strategy=RoutingStrategy.PRIORITY,
+        healthy=True,
+        circuit_open_until=999_999_999.0,
+    )
     rate_limited = NodeStats(
         provider="rl",
         url="https://rl.test",
@@ -261,6 +269,7 @@ def test_status_formatter_handles_429_and_generic_error() -> None:
         latency_ms=20.0,
         last_error="connection reset",
     )
+    assert "COOLDOWN" in _format_status(open_circuit)
     assert "429" in _format_status(rate_limited)
     assert "ERR" in _format_status(generic)
 

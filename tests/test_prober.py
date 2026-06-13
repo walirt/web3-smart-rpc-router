@@ -84,6 +84,7 @@ async def test_probe_once_records_success(
 ) -> None:
     """A 200 response from a node is recorded as healthy with a latency."""
     body = {"jsonrpc": "2.0", "id": 1, "result": "0x10"}
+    state_for.nodes["alpha"].circuit_open_until = 999_999_999.0
     with aioresponses() as mocked:
         mocked.post("https://alpha.test/rpc", payload=body, status=200)
         mocked.post("https://beta.test/rpc", payload=body, status=200)
@@ -96,6 +97,7 @@ async def test_probe_once_records_success(
     assert alpha.latency_ms is not None
     assert alpha.latency_ms >= 0.0
     assert alpha.last_probed_at is not None
+    assert alpha.circuit_open_until is None
     # beta is identical to alpha for this assertion.
     assert beta.healthy is True
     assert beta.consecutive_failures == 0

@@ -560,6 +560,54 @@ def test_select_node_raises_when_all_unhealthy(
         select_node(state_for, list(state_for.nodes.values()), RoutingStrategy.PRIORITY)
 
 
+def test_select_node_skips_open_circuit(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+) -> None:
+    """Healthy providers inside an open circuit are skipped by normal selection."""
+    state_for.nodes["alpha"].circuit_open_until = 999_999_999.0
+    chosen = select_node(state_for, two_node_config, RoutingStrategy.PRIORITY)
+    assert chosen.provider == "beta"
+
+
+async def test_forward_with_failover_opens_circuit_after_repeated_failures(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+    aiohttp_session: aiohttp.ClientSession,
+) -> None:
+    """Repeated transient upstream failures open provider circuits."""
+    for _ in range(3):
+        with aioresponses() as mocked:
+            mocked.post("https://alpha.test/rpc", payload={"err": "x"}, status=503)
+            mocked.post("https://beta.test/rpc", payload={"err": "x"}, status=503)
+            with pytest.raises(NoHealthyNodeError):
+                await forward_with_failover(
+                    state_for, two_node_config, aiohttp_session,
+                    {"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber"},
+                    request_timeout_seconds=10.0,
+                )
+    assert state_for.nodes["alpha"].is_circuit_open() is True
+    assert state_for.nodes["beta"].is_circuit_open() is True
+
+
+async def test_forward_with_failover_respects_open_circuits(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+    aiohttp_session: aiohttp.ClientSession,
+) -> None:
+    """When every candidate circuit is open, the proxy returns no healthy node."""
+    state_for.nodes["alpha"].circuit_open_until = 999_999_999.0
+    state_for.nodes["beta"].circuit_open_until = 999_999_999.0
+
+    with pytest.raises(NoHealthyNodeError):
+        await forward_with_failover(
+            state_for, two_node_config, aiohttp_session,
+            {"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber"},
+            request_timeout_seconds=10.0,
+        )
+    assert state_for.total_requests == 1
+
+
 # ---------------------------------------------------------------------------
 # (l) exponential backoff uses base, base*2, base*4 ... bounded by cap.
 # ---------------------------------------------------------------------------

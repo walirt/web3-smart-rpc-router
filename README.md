@@ -34,6 +34,7 @@ the caller. The client does not see the intermediate `429` or `5xx`.
 | Liveness endpoint | Done | `GET /healthz -> {"ok": true}` |
 | Provider failover on `429` and `5xx` | Done | `forward_with_failover()` and router tests |
 | Failover on network, timeout, and bad JSON bodies | Done | mocked upstream tests with `aioresponses` |
+| Circuit breaker cooldown for degraded providers | Done | `NodeStats.circuit_open_until`, router and prober tests |
 | Bounded exponential backoff | Done | `request_timeout_seconds / 4` base, `* 4` cap |
 | Routing strategies | Done | `priority`, `round_robin`, `lowest_latency`, `failover` |
 | Background health prober | Done | `core/prober.py`, `eth_blockNumber` probes |
@@ -292,7 +293,7 @@ core.models.RouterConfig
     |       - POST / JSON-RPC proxy
     |       - GET /healthz
     |       - strategy-aware upstream selection
-    |       - bounded failover and backoff
+    |       - bounded failover, backoff, and circuit breaker cooldown
     |
     +--> core.prober.prober_loop()
     |       - periodic eth_blockNumber probes
@@ -324,6 +325,8 @@ The implementation emphasizes reproducibility and defensive behavior:
   contexts when tests or callers do not inject one.
 - The prober isolates per-tick exceptions so one bad node cannot stop health
   checks.
+- A runtime circuit breaker cools down repeatedly failing providers while probes
+  continue checking for recovery.
 - Tests mock upstream RPC traffic; no test depends on real public endpoints.
 - No persistent secrets or database state are written.
 
@@ -333,6 +336,8 @@ Additional implementation notes are kept in `docs/`:
 
 - `docs/ai-usage.md`: CyOps-assisted build workflow and verification gates.
 - `docs/technical-innovation.md`: design notes for failover, routing, snapshots, backoff, and the free-RPC vs self-hosted RPC tradeoff.
+- `docs/plans/`: public CyOps build plans for the configuration, runtime, and
+  final hardening phases.
 
 ## Verification
 
@@ -347,7 +352,7 @@ mypy --strict core ui
 Current verified result:
 
 ```text
-112 passed
+116 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found
@@ -386,6 +391,10 @@ python -m pytest -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local \
 |   `-- state.py        # In-memory state, locking, snapshots
 |-- docs/
 |   |-- ai-usage.md
+|   |-- plans/
+|   |   |-- plan-1.md
+|   |   |-- plan-2.md
+|   |   `-- plan-3.md
 |   `-- technical-innovation.md
 |-- ui/
 |   |-- __init__.py

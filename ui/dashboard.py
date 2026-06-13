@@ -97,9 +97,9 @@ def _build_nodes(snapshot: dict[str, Any]) -> Panel:
         header_style=f"bold {COLOR_CYAN}",
     )
     table.add_column("PROVIDER", style="bold", ratio=3, no_wrap=True)
-    table.add_column("STATUS", justify="center", ratio=1, no_wrap=True)
+    table.add_column("STATUS", justify="center", ratio=2, no_wrap=True)
     table.add_column("PING", justify="center", ratio=1, no_wrap=True)
-    table.add_column("PRESSURE", justify="center", ratio=3, no_wrap=True)
+    table.add_column("PRESSURE", justify="center", ratio=2, no_wrap=True)
     table.add_column("SUCCESS RATE", justify="center", ratio=2, no_wrap=True)
 
     nodes: dict[str, NodeStats] = snapshot.get("nodes", {})
@@ -236,6 +236,8 @@ def _format_seconds_value(value: object) -> str:
 
 def _format_status(stats: NodeStats) -> str:
     """Render current node status."""
+    if stats.is_circuit_open():
+        return "[yellow]🟡 COOLDOWN[/]"
     if stats.healthy:
         return f"[{COLOR_NEON_GREEN}]🟢 200[/]"
     if stats.last_error and "429" in stats.last_error:

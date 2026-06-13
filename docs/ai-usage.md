@@ -55,7 +55,7 @@ pytest -q --cov=core --cov=ui --cov-branch --cov-fail-under=100
 Current local result:
 
 ```text
-112 passed
+116 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ```
 

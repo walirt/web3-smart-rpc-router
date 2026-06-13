@@ -38,6 +38,12 @@ _EVENT_LOG_CAPACITY: int = 256
 # Window used by the rolling ``tps_1s`` calculation.
 _TPS_WINDOW_SECONDS: float = 1.0
 
+# Circuit breaker defaults. They are runtime constants rather than YAML fields
+# so the public config contract stays small while the router gains protection
+# against repeatedly hammering a degraded public endpoint.
+CIRCUIT_FAILURE_THRESHOLD: int = 3
+CIRCUIT_COOLDOWN_SECONDS: float = 30.0
+
 
 def format_event(message: str, *, timestamp: float | None = None) -> str:
     """Prefix an event message with the wall-clock time when it was recorded."""
@@ -63,6 +69,13 @@ class NodeStats:
     consecutive_failures: int = 0
     last_error: Optional[str] = None
     last_probed_at: Optional[float] = None
+    circuit_open_until: Optional[float] = None
+
+    def is_circuit_open(self, now: float | None = None) -> bool:
+        """Return ``True`` while this node is inside its cooldown window."""
+        if self.circuit_open_until is None:
+            return False
+        return self.circuit_open_until > (time.monotonic() if now is None else now)
 
 
 @dataclass
@@ -181,6 +194,42 @@ class RouterState:
             self.total_failovers += 1
             self.event_log.append(format_event(f"failover {from_provider} -> {to_provider}"))
 
+    def record_node_success(self, provider: str, *, latency_ms: float | None = None) -> None:
+        """Mark ``provider`` healthy and close any open circuit.
+
+        This method expects the caller to hold :meth:`transaction` when
+        coordinating with other state mutations.
+        """
+        stats = self.nodes[provider]
+        if latency_ms is not None:
+            stats.latency_ms = latency_ms
+        stats.healthy = True
+        stats.consecutive_failures = 0
+        stats.last_error = None
+        stats.circuit_open_until = None
+
+    def record_node_failure(
+        self,
+        provider: str,
+        error: str,
+        *,
+        when: float | None = None,
+    ) -> None:
+        """Mark ``provider`` degraded and open its circuit after repeated failures.
+
+        This method expects the caller to hold :meth:`transaction` when
+        coordinating with other state mutations.
+        """
+        now = time.monotonic() if when is None else when
+        stats = self.nodes[provider]
+        stats.latency_ms = None
+        stats.healthy = False
+        stats.consecutive_failures += 1
+        stats.last_error = error
+        stats.last_probed_at = now
+        if stats.consecutive_failures >= CIRCUIT_FAILURE_THRESHOLD:
+            stats.circuit_open_until = now + CIRCUIT_COOLDOWN_SECONDS
+
     async def record_request(self, success: bool) -> None:
         """Update per-request counters and refresh :attr:`tps_1s`.
 
@@ -234,4 +283,10 @@ class RouterState:
         }
 
 
-__all__ = ["NodeStats", "RouterState", "format_event"]
+__all__ = [
+    "CIRCUIT_COOLDOWN_SECONDS",
+    "CIRCUIT_FAILURE_THRESHOLD",
+    "NodeStats",
+    "RouterState",
+    "format_event",
+]
