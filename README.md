@@ -269,7 +269,7 @@ never mutates request flow.
 Dashboard panels:
 
 - Header: active status, uptime, global routing strategy, and listen port.
-- Node Health: provider, status, ping, failure pressure bar, and success-rate estimate.
+- Node Health: provider, status, ping, pressure bar, and success-rate estimate.
 - Method Routing: method-specific provider subsets and optional strategy overrides.
 - Traffic & Performance: current TPS, failover count, total requests, and an
   automatic traffic-shift hint.

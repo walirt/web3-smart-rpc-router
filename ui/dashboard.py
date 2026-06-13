@@ -59,15 +59,24 @@ def _build_header(snapshot: dict[str, Any]) -> Panel:
     routing_strategy = _format_strategy_value(
         snapshot.get("routing_strategy", RoutingStrategy.PRIORITY)
     )
+    host = snapshot.get("listen_host", "127.0.0.1")
     port = snapshot.get("listen_port")
-    body = (
-        f"🚀 [bold {COLOR_CYAN}]Web3 Smart RPC Router (v1.0)[/] | "
-        f"Status: [[{COLOR_NEON_GREEN}]🟢 ACTIVE[/]] | "
-        f"Uptime: {_format_uptime(uptime)}\n"
-        f"Routing Strategy: [bold {COLOR_CYAN}]{routing_strategy}[/] "
-        f"Port: [bold {COLOR_CYAN}]{port if port is not None else '-'}[/]"
+    bind = f"{host}:{port}" if port is not None else f"{host}:-"
+    grid = Table.grid(expand=True)
+    grid.add_column(ratio=3)
+    grid.add_column(ratio=2)
+    grid.add_column(ratio=2, justify="right")
+    grid.add_row(
+        f"🚀 [bold {COLOR_CYAN}]Web3 Smart RPC Router (v1.0)[/]",
+        f"Status: [[{COLOR_NEON_GREEN}]🟢 ACTIVE[/]]",
+        f"Uptime: {_format_uptime(uptime)}",
     )
-    return Panel(body, box=box.ROUNDED, border_style=COLOR_CYAN, style=f"on {COLOR_BG}")
+    grid.add_row(
+        f"Strategy: [bold {COLOR_CYAN}]{routing_strategy}[/]",
+        "",
+        f"Bind: [bold {COLOR_CYAN}]{bind}[/]",
+    )
+    return Panel(grid, box=box.ROUNDED, border_style=COLOR_CYAN, style=f"on {COLOR_BG}")
 
 
 def _build_nodes(snapshot: dict[str, Any]) -> Panel:
@@ -80,11 +89,11 @@ def _build_nodes(snapshot: dict[str, Any]) -> Panel:
         pad_edge=False,
         header_style=f"bold {COLOR_CYAN}",
     )
-    table.add_column("PROVIDER", style="bold")
-    table.add_column("STATUS", justify="center")
-    table.add_column("PING", justify="right")
-    table.add_column("FAILURE PRESSURE")
-    table.add_column("SUCCESS RATE", justify="center")
+    table.add_column("PROVIDER", style="bold", ratio=3)
+    table.add_column("STATUS", justify="center", ratio=1)
+    table.add_column("PING", justify="right", ratio=1)
+    table.add_column("PRESSURE", ratio=2)
+    table.add_column("SUCCESS RATE", justify="center", ratio=2)
 
     nodes: dict[str, NodeStats] = snapshot.get("nodes", {})
     for provider in sorted(nodes, key=lambda p: (nodes[p].priority, p)):

@@ -194,14 +194,15 @@ def test_render_frame_uses_requested_dashboard_labels(
     """The rendered frame exposes the requested dashboard labels."""
     text = _flatten_text(render_frame(state_for_dashboard.snapshot()))
     assert "Web3 Smart RPC Router (v1.0)" in text
-    assert "Routing Strategy: priority" in text
-    assert "Port: 8545" in text
+    assert "Strategy: priority" in text
+    assert "Bind: 127.0.0.1:8545" in text
     assert "节点健康(Node Health)" in text
     assert "方法分流(Method Routing)" in text
     assert "全局流量统计" in text
     assert "实时自愈日志" in text
     assert "PROVIDER" in text
-    assert "FAILURE PRESSURE" in text
+    assert "PRESSURE" in text
+    assert "FAILURE PRESSURE" not in text
     assert "QUOTA USED" not in text
     assert "METHOD" in text
     assert "eth_getLogs" in text

@@ -262,7 +262,7 @@ HTTP 状态码为 `503`。
 大盘包含：
 
 - Header：运行状态、uptime、全局 routing strategy 和监听端口。
-- Node Health：provider、status、ping、failure pressure bar、success-rate estimate。
+- Node Health：provider、status、ping、pressure bar、success-rate estimate。
 - Method Routing：按方法配置的 provider 子集和可选策略覆盖。
 - Traffic & Performance：当前 TPS、故障转移次数、总请求数和流量迁移提示。
 - Live Self-Healing Logs：探测失败、故障转移和请求事件日志。
