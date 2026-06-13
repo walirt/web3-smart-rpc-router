@@ -89,6 +89,11 @@ global:
   routing_strategy: priority
   max_retries: 3
 
+method_routes:
+  eth_getLogs:
+    providers: [cloudflare-eth]
+    routing_strategy: priority
+
 rpc_nodes:
   - provider: cloudflare-eth
     url: https://cloudflare-ethereum.com
@@ -104,13 +109,15 @@ rpc_nodes:
 3. 设置 `global.routing_strategy`，它决定路由器如何选择上游节点。
 4. 在 `rpc_nodes` 中为每个上游 RPC 服务商添加一条节点配置。
 5. 每个节点都需要唯一的 `provider` 名称和唯一的 `priority` 数值。
-6. 启动前先验证配置：
+6. 如有需要，在 `method_routes` 中为特定 JSON-RPC 方法指定 provider 子集
+   或策略覆盖。
+7. 启动前先验证配置：
 
 ```bash
 python -m core.config config.yaml
 ```
 
-7. 使用该配置启动路由器：
+8. 使用该配置启动路由器：
 
 ```bash
 python -m core.router config.yaml --with-tui
@@ -125,6 +132,8 @@ python -m core.router config.yaml --with-tui
 | `request_timeout_seconds` | `global` | 上游请求超时，也是退避计算的基础 |
 | `routing_strategy` | `global` | 可选 `priority`、`round_robin`、`lowest_latency`、`failover` |
 | `max_retries` | `global` | 配置契约中保留的重试预算字段 |
+| `method_routes.<method>.providers` | `method_routes` | 某个 JSON-RPC 方法允许使用的 provider 名称 |
+| `method_routes.<method>.routing_strategy` | `method_routes` | 该方法可选的策略覆盖 |
 | `provider` | `rpc_nodes[]` | 上游节点的唯一名称，也用于状态和 TUI 展示 |
 | `url` | `rpc_nodes[]` | 上游 JSON-RPC HTTP(S) 地址 |
 | `priority` | `rpc_nodes[]` | 数值越小优先级越高 |
@@ -141,16 +150,31 @@ global:
   routing_strategy: priority
   max_retries: 3
 
+method_routes:
+  eth_getLogs:
+    providers: [archive]
+    routing_strategy: priority
+
+  eth_sendRawTransaction:
+    providers: [tx-broadcast, fallback]
+    routing_strategy: failover
+
 rpc_nodes:
-  - provider: primary
+  - provider: archive
     url: https://primary.example/rpc
     priority: 1
     weight: 1
     headers: {}
 
+  - provider: tx-broadcast
+    url: https://tx.example/rpc
+    priority: 2
+    weight: 1
+    headers: {}
+
   - provider: fallback
     url: https://fallback.example/rpc
-    priority: 2
+    priority: 3
     weight: 1
     headers:
       X-Demo: local-router
@@ -161,6 +185,7 @@ rpc_nodes:
 - 顶层只允许 `global` 和 `rpc_nodes`。
 - 节点和全局配置中的未知字段都会被拒绝。
 - provider 名称和 priority 必须唯一。
+- `method_routes` 只能引用 `rpc_nodes` 中已经声明的 provider。
 - URL 必须使用 `http` 或 `https`。
 - `routing_strategy` 属于 `global`，不要放到单个节点下面。
 - timeout 和 probe interval 必须为正数。
@@ -214,6 +239,17 @@ HTTP 状态码为 `503`。
 如果所有节点都被标记为不健康，转发路径仍会按 priority 顺序尝试完整配置链。
 这样当全局故障恢复后，服务仍然可以自愈。
 
+### 按方法分流
+
+`method_routes` 可以让特定 JSON-RPC 方法使用指定 provider 子集，并可选择覆盖
+全局策略。这适合不同 RPC 方法对基础设施要求不同的场景：
+
+- `eth_getLogs` 可以路由到 archive 能力更强的节点。
+- `eth_sendRawTransaction` 可以路由到交易广播更稳定的节点。
+- 未命中的方法继续使用全局 `routing_strategy` 和完整节点列表。
+
+当前只对单个 JSON-RPC 请求对象做方法分流。Batch 请求的逐项分流可以后续再加。
+
 ## 终端大盘
 
 使用 `--with-tui` 可以在同一个事件循环中启动 Rich 终端大盘。TUI 是只读的：
@@ -222,8 +258,8 @@ HTTP 状态码为 `503`。
 大盘包含：
 
 - Header：运行状态和 uptime。
-- Node Health & Method Routing：provider、status、ping、strategy、quota bar、
-  success-rate estimate。
+- Node Health：provider、status、ping、strategy、quota bar、success-rate estimate。
+- Method Routing：按方法配置的 provider 子集和可选策略覆盖。
 - Traffic & Performance：当前 TPS、故障转移次数、总请求数和流量迁移提示。
 - Live Self-Healing Logs：探测失败、故障转移和请求事件日志。
 
@@ -297,7 +333,7 @@ mypy --strict core ui
 当前验证结果：
 
 ```text
-97 passed
+105 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found
@@ -389,7 +425,12 @@ python -m pytest -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local \
 - 认证或 API Key 管理。
 - 持久化状态、SQLite、Redis 或外部数据库。
 - 真实公网 RPC benchmark。
+- WebSocket transport（`ws://` / `wss://`）和 `eth_subscribe` 代理。
 - FastAPI、uvicorn、httpx、React、Vue 或浏览器 UI。
+
+TODO:
+
+- 增加完整 WebSocket 代理能力，支持 `ws://` 和 `wss://` 上游。
 
 ## License
 

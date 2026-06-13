@@ -92,6 +92,11 @@ global:
   routing_strategy: priority
   max_retries: 3
 
+method_routes:
+  eth_getLogs:
+    providers: [cloudflare-eth]
+    routing_strategy: priority
+
 rpc_nodes:
   - provider: cloudflare-eth
     url: https://cloudflare-ethereum.com
@@ -107,13 +112,15 @@ rpc_nodes:
 3. Set `global.routing_strategy` to choose how the router selects upstreams.
 4. Add one `rpc_nodes` entry per upstream RPC provider.
 5. Give every node a unique `provider` name and a unique `priority` number.
-6. Validate before running:
+6. Optionally add `method_routes` entries for JSON-RPC methods that should use
+   a specific provider subset or strategy.
+7. Validate before running:
 
 ```bash
 python -m core.config config.yaml
 ```
 
-7. Start the router with that config:
+8. Start the router with that config:
 
 ```bash
 python -m core.router config.yaml --with-tui
@@ -128,6 +135,8 @@ Field reference:
 | `request_timeout_seconds` | `global` | Upstream request timeout and backoff basis |
 | `routing_strategy` | `global` | One of `priority`, `round_robin`, `lowest_latency`, `failover` |
 | `max_retries` | `global` | Reserved retry budget in the config contract |
+| `method_routes.<method>.providers` | `method_routes` | Provider names allowed for a specific JSON-RPC method |
+| `method_routes.<method>.routing_strategy` | `method_routes` | Optional strategy override for that method |
 | `provider` | `rpc_nodes[]` | Unique display and state key for the upstream |
 | `url` | `rpc_nodes[]` | Upstream JSON-RPC HTTP(S) endpoint |
 | `priority` | `rpc_nodes[]` | Lower number means higher priority |
@@ -144,16 +153,31 @@ global:
   routing_strategy: priority
   max_retries: 3
 
+method_routes:
+  eth_getLogs:
+    providers: [archive]
+    routing_strategy: priority
+
+  eth_sendRawTransaction:
+    providers: [tx-broadcast, fallback]
+    routing_strategy: failover
+
 rpc_nodes:
-  - provider: primary
+  - provider: archive
     url: https://primary.example/rpc
     priority: 1
     weight: 1
     headers: {}
 
+  - provider: tx-broadcast
+    url: https://tx.example/rpc
+    priority: 2
+    weight: 1
+    headers: {}
+
   - provider: fallback
     url: https://fallback.example/rpc
-    priority: 2
+    priority: 3
     weight: 1
     headers:
       X-Demo: local-router
@@ -164,6 +188,7 @@ Validation rules are strict:
 - Top-level keys outside `global` and `rpc_nodes` are rejected.
 - Unknown node/global fields are rejected.
 - Provider names and priorities must be unique.
+- `method_routes` may only reference providers declared in `rpc_nodes`.
 - URLs must use `http` or `https`.
 - `routing_strategy` belongs under `global`, not under individual nodes.
 - Timeouts and probe intervals must be positive.
@@ -218,6 +243,19 @@ If every node is currently marked unhealthy, the forwarding path still tries the
 full configured chain in priority order. This gives the service a self-healing
 path after a global outage clears.
 
+### Method-Based Routing
+
+`method_routes` lets specific JSON-RPC methods use a provider subset and an
+optional strategy override. This is useful when different methods have different
+infrastructure needs:
+
+- `eth_getLogs` can be routed to archive-capable nodes.
+- `eth_sendRawTransaction` can be routed to transaction broadcast providers.
+- Unmatched methods use the global `routing_strategy` and the full node list.
+
+Only single JSON-RPC request objects are routed this way today. Batch request
+routing can be added later if needed.
+
 ## Dashboard
 
 Run with `--with-tui` to launch the Rich dashboard in the same event loop as the
@@ -227,8 +265,8 @@ never mutates request flow.
 Dashboard panels:
 
 - Header: active status and uptime.
-- Node Health & Method Routing: provider, status, ping, strategy, quota bar, and
-  success-rate estimate.
+- Node Health: provider, status, ping, strategy, quota bar, and success-rate estimate.
+- Method Routing: method-specific provider subsets and optional strategy overrides.
 - Traffic & Performance: current TPS, failover count, total requests, and an
   automatic traffic-shift hint.
 - Live Self-Healing Logs: timestamped probe failures, failovers, and request
@@ -306,7 +344,7 @@ mypy --strict core ui
 Current verified result:
 
 ```text
-97 passed
+105 passed
 Required test coverage of 100% reached. Total coverage: 100.00%
 ruff: All checks passed
 mypy: Success: no issues found
@@ -399,7 +437,12 @@ Not included:
 - Authentication or API-key management.
 - Persistent state, SQLite, Redis, or external databases.
 - Real live-RPC benchmark tests.
+- WebSocket transports (`ws://` / `wss://`) and `eth_subscribe` proxying.
 - FastAPI, uvicorn, httpx, React, Vue, or browser UI.
+
+TODO:
+
+- Add full WebSocket proxy support for `ws://` and `wss://` upstreams.
 
 ## License
 

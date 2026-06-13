@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from core.models import (
     GlobalSettings,
+    MethodRoute,
     RoutingStrategy,
     RpcNode,
     RouterConfig,
@@ -30,6 +31,7 @@ def test_valid_full_config_builds(valid_global_dict, valid_node_dict):
     assert cfg.global_.routing_strategy == RoutingStrategy.ROUND_ROBIN
     assert cfg.global_.max_retries == 3
     assert len(cfg.rpc_nodes) == 1
+    assert cfg.method_routes == {}
     assert cfg.rpc_nodes[0].provider == "test-provider"
     assert cfg.rpc_nodes[0].url == "https://example.com"
     assert cfg.rpc_nodes[0].priority == 1
@@ -218,3 +220,40 @@ def test_node_routing_strategy_extra_rejected(valid_node_dict):
 
     with pytest.raises(ValidationError):
         RpcNode.model_validate(node)
+
+
+def test_method_route_can_reference_existing_provider(valid_global_dict, valid_node_dict):
+    """method_routes can constrain a JSON-RPC method to existing providers."""
+    raw = {
+        "global": valid_global_dict,
+        "method_routes": {
+            "eth_getLogs": {
+                "providers": ["test-provider"],
+                "routing_strategy": "priority",
+            }
+        },
+        "rpc_nodes": [valid_node_dict],
+    }
+
+    cfg = RouterConfig.model_validate(raw)
+
+    assert cfg.method_routes["eth_getLogs"].providers == ["test-provider"]
+    assert cfg.method_routes["eth_getLogs"].routing_strategy is RoutingStrategy.PRIORITY
+
+
+def test_method_route_unknown_provider_raises(valid_global_dict, valid_node_dict):
+    """method_routes may not reference providers absent from rpc_nodes."""
+    raw = {
+        "global": valid_global_dict,
+        "method_routes": {"eth_getLogs": {"providers": ["archive"]}},
+        "rpc_nodes": [valid_node_dict],
+    }
+
+    with pytest.raises(ValidationError):
+        RouterConfig.model_validate(raw)
+
+
+def test_method_route_duplicate_provider_raises() -> None:
+    """A single method route cannot list the same provider twice."""
+    with pytest.raises(ValidationError):
+        MethodRoute.model_validate({"providers": ["a", "a"]})

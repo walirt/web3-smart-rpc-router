@@ -28,7 +28,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import AsyncIterator, Iterable, Optional
 
-from core.models import RpcNode, RoutingStrategy
+from core.models import MethodRoute, RpcNode, RoutingStrategy
 
 
 # Cap on the in-memory event-tape length. Older lines are silently
@@ -70,6 +70,7 @@ class RouterState:
     """
 
     nodes: dict[str, NodeStats] = field(default_factory=dict)
+    method_routes: dict[str, dict[str, object]] = field(default_factory=dict)
     round_robin_index: int = 0
     total_requests: int = 0
     total_success: int = 0
@@ -104,6 +105,7 @@ class RouterState:
         cls,
         rpc_nodes: Iterable[RpcNode],
         routing_strategy: RoutingStrategy = RoutingStrategy.PRIORITY,
+        method_routes: dict[str, MethodRoute] | None = None,
     ) -> "RouterState":
         """Build a fresh :class:`RouterState` seeded from ``rpc_nodes``."""
         state = cls()
@@ -114,6 +116,14 @@ class RouterState:
                 priority=node.priority,
                 routing_strategy=routing_strategy,
             )
+        if method_routes:
+            state.method_routes = {
+                method: {
+                    "providers": list(route.providers),
+                    "routing_strategy": route.routing_strategy or routing_strategy,
+                }
+                for method, route in method_routes.items()
+            }
         return state
 
     # ------------------------------------------------------------------
@@ -188,6 +198,7 @@ class RouterState:
         """
         return {
             "nodes": copy.deepcopy(self.nodes),
+            "method_routes": copy.deepcopy(self.method_routes),
             "round_robin_index": self.round_robin_index,
             "total_requests": self.total_requests,
             "total_success": self.total_success,

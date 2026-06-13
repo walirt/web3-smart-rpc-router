@@ -15,7 +15,7 @@ import asyncio
 
 import pytest
 
-from core.models import GlobalSettings, RoutingStrategy, RpcNode
+from core.models import GlobalSettings, MethodRoute, RoutingStrategy, RpcNode
 from core.state import NodeStats, RouterState
 
 
@@ -230,7 +230,18 @@ async def test_tps_1s_drops_stale_timestamps() -> None:
 
 async def test_from_config_seeds_nodes(global_settings, two_node_config) -> None:
     """``from_config`` seeds ``nodes`` keyed by provider with default stats."""
-    state = RouterState.from_config(two_node_config, global_settings.routing_strategy)
+    method_routes = {
+        "eth_getLogs": MethodRoute(
+            providers=["alpha"],
+            routing_strategy=RoutingStrategy.LOWEST_LATENCY,
+        ),
+        "eth_call": MethodRoute(providers=["beta"]),
+    }
+    state = RouterState.from_config(
+        two_node_config,
+        global_settings.routing_strategy,
+        method_routes,
+    )
     assert set(state.nodes) == {"alpha", "beta"}
     assert state.nodes["alpha"].provider == "alpha"
     assert state.nodes["alpha"].url == "https://alpha.example.com"
@@ -240,6 +251,16 @@ async def test_from_config_seeds_nodes(global_settings, two_node_config) -> None
     # Counter / log fields stay at their zero defaults.
     assert state.total_requests == 0
     assert state.event_log == type(state.event_log)() or list(state.event_log) == []
+    assert state.method_routes == {
+        "eth_getLogs": {
+            "providers": ["alpha"],
+            "routing_strategy": RoutingStrategy.LOWEST_LATENCY,
+        },
+        "eth_call": {
+            "providers": ["beta"],
+            "routing_strategy": RoutingStrategy.PRIORITY,
+        },
+    }
 
 
 async def test_record_failover_appends_event_and_increments() -> None:
@@ -258,9 +279,24 @@ async def test_record_failover_appends_event_and_increments() -> None:
 def test_snapshot_deep_copies_nodes_and_event_log() -> None:
     """``snapshot()`` returns structures that are safe to mutate independently."""
     state = RouterState()
+    state.method_routes = {
+        "eth_getLogs": {
+            "providers": ["alpha"],
+            "routing_strategy": RoutingStrategy.PRIORITY,
+        }
+    }
     snap = state.snapshot()
     # The event_log is a copy: appending to live does not affect snap, and vice versa.
     state.event_log.append("x")
+    providers = state.method_routes["eth_getLogs"]["providers"]
+    assert isinstance(providers, list)
+    providers.append("beta")
     assert snap["event_log"] == []
+    assert snap["method_routes"] == {
+        "eth_getLogs": {
+            "providers": ["alpha"],
+            "routing_strategy": RoutingStrategy.PRIORITY,
+        }
+    }
     snap["event_log"].append("y")
     assert list(state.event_log) == ["x"]

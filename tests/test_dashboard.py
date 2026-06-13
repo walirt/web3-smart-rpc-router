@@ -1,9 +1,9 @@
 """Tests for :mod:`ui.dashboard`.
 
 The dashboard is a read-only :mod:`rich` TUI that snapshots the
-:class:`RouterState` once per second and renders a 3-row layout:
-a header panel with title/uptime/TPS, a body table with one row per
-node, and a footer panel showing the last 8 events. The tests in
+:class:`RouterState` once per second and renders a five-panel layout:
+a header panel, node health, method routing, traffic, and a footer
+panel showing the last 8 events. The tests in
 this module cover the public surface area declared in AC-10:
 
 * :func:`render_frame` returns a :class:`rich.layout.Layout`.
@@ -28,7 +28,9 @@ from core.models import RoutingStrategy
 from core.state import NodeStats, RouterState
 from ui.dashboard import (
     _build_demo_state,
+    _build_method_routes,
     _demo_main,
+    _format_route_strategy,
     _format_log_line,
     _format_status,
     dashboard_loop,
@@ -68,6 +70,16 @@ def state_for_dashboard() -> RouterState:
     state.total_success = 5
     state.total_failovers = 2
     state.tps_1s = 1.0
+    state.method_routes = {
+        "eth_getLogs": {
+            "providers": ["alpha"],
+            "routing_strategy": RoutingStrategy.LOWEST_LATENCY,
+        },
+        "eth_sendRawTransaction": {
+            "providers": ["beta"],
+            "routing_strategy": RoutingStrategy.FAILOVER,
+        },
+    }
     for msg in [
         "failover alpha -> beta",
         "probe-fail beta upstream returned HTTP 503",
@@ -129,12 +141,13 @@ def test_render_frame_returns_layout(state_for_dashboard: RouterState) -> None:
 def test_render_frame_table_has_one_row_per_node(
     state_for_dashboard: RouterState,
 ) -> None:
-    """The body table has exactly ``len(nodes)`` rows."""
+    """The node and method-routing tables match their snapshot sizes."""
     snapshot = state_for_dashboard.snapshot()
     layout = render_frame(snapshot)
     tables = list(_walk_tables(layout))
     assert tables, "render_frame produced no Table"
-    assert tables[0].row_count == len(snapshot["nodes"])
+    assert any(table.row_count == len(snapshot["nodes"]) for table in tables)
+    assert any(table.row_count == len(snapshot["method_routes"]) for table in tables)
 
 
 # ---------------------------------------------------------------------------
@@ -176,14 +189,31 @@ def test_render_frame_handles_empty_event_log() -> None:
 def test_render_frame_uses_requested_dashboard_labels(
     state_for_dashboard: RouterState,
 ) -> None:
-    """The rendered frame exposes the requested four-panel dashboard labels."""
+    """The rendered frame exposes the requested dashboard labels."""
     text = _flatten_text(render_frame(state_for_dashboard.snapshot()))
     assert "Web3 Smart RPC Router (v1.0)" in text
-    assert "节点健康与方法分流大盘" in text
+    assert "节点健康(Node Health)" in text
+    assert "方法分流(Method Routing)" in text
     assert "全局流量统计" in text
     assert "实时自愈日志" in text
     assert "PROVIDER" in text
+    assert "METHOD" in text
+    assert "eth_getLogs" in text
     assert "SUCCESS RATE" in text
+
+
+def test_method_routes_panel_handles_empty_routes() -> None:
+    """An empty method-routing snapshot renders the global-strategy placeholder."""
+    text = _flatten_text(_build_method_routes({"method_routes": {}}))
+    assert "no method-specific routes" in text
+
+
+def test_route_strategy_formatter_handles_string_and_unknown_values() -> None:
+    """Route strategy labels are stable for enum, string, and fallback values."""
+    assert _format_route_strategy(RoutingStrategy.FAILOVER) == "Fallback"
+    assert _format_route_strategy("round_robin") == "Round Robin"
+    assert _format_route_strategy("custom") == "custom"
+    assert _format_route_strategy(123) == "123"
 
 
 def test_status_formatter_handles_429_and_generic_error() -> None:
@@ -296,6 +326,7 @@ def test_build_demo_state_populates_two_nodes() -> None:
     """``_build_demo_state`` returns a state matching the sample dashboard."""
     state = _build_demo_state()
     assert set(state.nodes) == {"Alchemy-Free", "Infura-Main", "QuickNode", "Local-Node"}
+    assert set(state.method_routes) == {"eth_getLogs", "eth_sendRawTransaction"}
     assert len(state.event_log) >= 1
 
 

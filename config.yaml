@@ -14,6 +14,20 @@ global:
   routing_strategy: priority
   max_retries: 3
 
+method_routes:
+  # Send log-heavy queries to the highest-priority archive-capable provider.
+  eth_getLogs:
+    providers:
+      - publicnode-eth
+    routing_strategy: priority
+
+  # Keep transaction broadcast on the fallback chain for resilience.
+  eth_sendRawTransaction:
+    providers:
+      - drpc-eth
+      - publicnode-eth
+    routing_strategy: failover
+
 rpc_nodes:
   # Highest-priority node: HTTPS Publicnode Ethereum gateway.
   - provider: publicnode-eth

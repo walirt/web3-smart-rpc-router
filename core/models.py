@@ -88,12 +88,29 @@ class RpcNode(BaseModel):
         return value
 
 
+class MethodRoute(BaseModel):
+    """Optional routing override for one JSON-RPC method."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    providers: list[str] = Field(..., min_length=1)
+    routing_strategy: RoutingStrategy | None = None
+
+    @model_validator(mode="after")
+    def _check_unique_providers(self) -> MethodRoute:
+        """Reject duplicate provider labels inside one method route."""
+        if len(set(self.providers)) != len(self.providers):
+            raise ValueError("providers must be unique within a method route")
+        return self
+
+
 class RouterConfig(BaseModel):
     """The top-level router configuration object."""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     global_: GlobalSettings = Field(..., alias="global")
+    method_routes: dict[str, MethodRoute] = Field(default_factory=dict)
     rpc_nodes: list[RpcNode] = Field(..., min_length=1)
 
     @model_validator(mode="after")
@@ -105,12 +122,22 @@ class RouterConfig(BaseModel):
                 raise ValueError(
                     f"{field_name} values must be unique across rpc_nodes"
                 )
+        provider_names = {node.provider for node in self.rpc_nodes}
+        for method, route in self.method_routes.items():
+            unknown = set(route.providers) - provider_names
+            if unknown:
+                unknown_list = ", ".join(sorted(unknown))
+                raise ValueError(
+                    f"method_routes[{method!r}] references unknown provider(s): "
+                    f"{unknown_list}"
+                )
         return self
 
 
 __all__ = [
     "GlobalSettings",
     "HttpUrlStr",
+    "MethodRoute",
     "RpcNode",
     "RouterConfig",
     "RoutingStrategy",

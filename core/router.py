@@ -33,7 +33,7 @@ import aiohttp
 from aiohttp import web
 
 from core.config import load_config
-from core.models import RpcNode, RoutingStrategy
+from core.models import MethodRoute, RpcNode, RoutingStrategy
 from core.state import RouterState
 
 _LOGGER = logging.getLogger(__name__)
@@ -90,6 +90,24 @@ def _attempt_order(
     if routing_strategy is RoutingStrategy.LOWEST_LATENCY:
         return sorted(healthy, key=lambda n: _latency_sort_key(state, n))
     return sorted(healthy, key=lambda n: n.priority)
+
+
+def _route_for_payload(
+    cfg: list[RpcNode],
+    method_routes: dict[str, MethodRoute],
+    payload: dict[str, Any],
+    default_strategy: RoutingStrategy,
+) -> tuple[list[RpcNode], RoutingStrategy]:
+    """Return the node subset and strategy for a JSON-RPC payload."""
+    method = payload.get("method")
+    if not isinstance(method, str):
+        return cfg, default_strategy
+    route = method_routes.get(method)
+    if route is None:
+        return cfg, default_strategy
+    providers = set(route.providers)
+    routed = [node for node in cfg if node.provider in providers]
+    return routed, route.routing_strategy or default_strategy
 
 
 def select_node(
@@ -246,11 +264,13 @@ class ProxyHandler:
         cfg: list[RpcNode],
         *,
         routing_strategy: RoutingStrategy = RoutingStrategy.PRIORITY,
+        method_routes: dict[str, MethodRoute] | None = None,
         request_timeout_seconds: float,
     ) -> None:
         self.state = state
         self.cfg = cfg
         self.routing_strategy = routing_strategy
+        self.method_routes = method_routes or {}
         self.request_timeout_seconds = request_timeout_seconds
 
     async def handle(self, request: web.Request) -> web.Response:
@@ -262,13 +282,19 @@ class ProxyHandler:
         if not isinstance(raw, dict):
             return web.json_response({"error": "invalid jsonrpc"}, status=400)
         client: aiohttp.ClientSession = request.app["upstream_client"]
+        route_cfg, route_strategy = _route_for_payload(
+            self.cfg,
+            self.method_routes,
+            raw,
+            self.routing_strategy,
+        )
         try:
             body, _provider = await forward_with_failover(
                 self.state,
-                self.cfg,
+                route_cfg,
                 client,
                 raw,
-                routing_strategy=self.routing_strategy,
+                routing_strategy=route_strategy,
                 request_timeout_seconds=self.request_timeout_seconds,
             )
         except NoHealthyNodeError:
@@ -284,6 +310,7 @@ def make_app(
     *,
     upstream_client: Optional[aiohttp.ClientSession] = None,
     routing_strategy: RoutingStrategy = RoutingStrategy.PRIORITY,
+    method_routes: dict[str, MethodRoute] | None = None,
     request_timeout_seconds: float = 10.0,
 ) -> web.Application:
     """Build an :class:`aiohttp.web.Application` exposing ``POST /`` and ``GET /healthz``.
@@ -298,6 +325,7 @@ def make_app(
     app["state"] = state
     app["cfg"] = cfg
     app["routing_strategy"] = routing_strategy
+    app["method_routes"] = method_routes or {}
     app["upstream_client"] = upstream_client
     app["request_timeout_seconds"] = request_timeout_seconds
     if upstream_client is None:
@@ -306,6 +334,7 @@ def make_app(
         state,
         cfg,
         routing_strategy=routing_strategy,
+        method_routes=method_routes,
         request_timeout_seconds=request_timeout_seconds,
     )
     app.router.add_post("/", handler.handle)
@@ -341,7 +370,11 @@ async def main_async(cfg_path: str, with_tui: bool = False) -> None:
     from core.prober import prober_loop
 
     cfg = load_config(cfg_path)
-    state = RouterState.from_config(cfg.rpc_nodes, cfg.global_.routing_strategy)
+    state = RouterState.from_config(
+        cfg.rpc_nodes,
+        cfg.global_.routing_strategy,
+        cfg.method_routes,
+    )
     stop = asyncio.Event()
 
     async def _wait_for_signal() -> None:
@@ -377,6 +410,7 @@ async def main_async(cfg_path: str, with_tui: bool = False) -> None:
             cfg.rpc_nodes,
             upstream_client=client,
             routing_strategy=cfg.global_.routing_strategy,
+            method_routes=cfg.method_routes,
             request_timeout_seconds=cfg.global_.request_timeout_seconds,
         )
         runner = web.AppRunner(app)

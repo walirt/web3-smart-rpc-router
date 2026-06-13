@@ -1,8 +1,8 @@
 """Rich TUI dashboard for the Web3 Smart RPC Router.
 
 The dashboard is a read-only observer: it calls
-``RouterState.snapshot()`` once per refresh tick and renders a four
-panel view for status, node health, traffic, and live self-healing logs.
+``RouterState.snapshot()`` once per refresh tick and renders a five
+panel view for status, node health, method routing, traffic, and live logs.
 It never mutates the live state and never acquires the state lock.
 """
 from __future__ import annotations
@@ -34,16 +34,20 @@ EVENT_TAPE_LINES = 8
 def render_frame(snapshot: dict[str, Any]) -> Layout:
     """Build one dashboard frame from a state snapshot."""
     nodes: dict[str, NodeStats] = snapshot.get("nodes", {})
+    method_routes: dict[str, dict[str, object]] = snapshot.get("method_routes", {})
     nodes_size = max(6, min(14, len(nodes) + 4))
+    methods_size = max(5, min(10, len(method_routes) + 4))
     layout = Layout()
     layout.split_column(
         Layout(name="header", size=3),
         Layout(name="nodes", size=nodes_size),
+        Layout(name="methods", size=methods_size),
         Layout(name="traffic", size=5),
         Layout(name="logs", size=EVENT_TAPE_LINES + 2),
     )
     layout["header"].update(_build_header(snapshot))
     layout["nodes"].update(_build_nodes(snapshot))
+    layout["methods"].update(_build_method_routes(snapshot))
     layout["traffic"].update(_build_traffic(snapshot))
     layout["logs"].update(_build_logs(snapshot))
     return layout
@@ -61,7 +65,7 @@ def _build_header(snapshot: dict[str, Any]) -> Panel:
 
 
 def _build_nodes(snapshot: dict[str, Any]) -> Panel:
-    """Build the node health and method-routing panel."""
+    """Build the node health panel."""
     table = Table(
         expand=True,
         show_lines=False,
@@ -90,7 +94,55 @@ def _build_nodes(snapshot: dict[str, Any]) -> Panel:
         )
     return Panel(
         table,
-        title="📡 节点健康与方法分流大盘 (Node Health & Method Routing)",
+        title="📡 节点健康(Node Health)",
+        title_align="left",
+        box=box.ROUNDED,
+        border_style=COLOR_CYAN,
+        style=f"on {COLOR_BG}",
+    )
+
+
+def _build_method_routes(snapshot: dict[str, Any]) -> Panel:
+    """Build the configured method-routing panel."""
+    method_routes: dict[str, dict[str, object]] = snapshot.get("method_routes", {})
+    if not method_routes:
+        body = "[dim](no method-specific routes; using global strategy)[/]"
+        return Panel(
+            body,
+            title="🧭 方法分流(Method Routing)",
+            title_align="left",
+            box=box.ROUNDED,
+            border_style=COLOR_CYAN,
+            style=f"on {COLOR_BG}",
+        )
+
+    table = Table(
+        expand=True,
+        show_lines=False,
+        box=None,
+        show_edge=False,
+        pad_edge=False,
+        header_style=f"bold {COLOR_CYAN}",
+    )
+    table.add_column("METHOD", style="bold")
+    table.add_column("PROVIDERS")
+    table.add_column("ROUTING STRATEGY")
+
+    for method in sorted(method_routes):
+        route = method_routes[method]
+        providers_raw = route.get("providers", [])
+        providers = providers_raw if isinstance(providers_raw, list) else []
+        provider_labels = ", ".join(str(provider) for provider in providers)
+        strategy = route.get("routing_strategy", RoutingStrategy.PRIORITY)
+        table.add_row(
+            method,
+            provider_labels or "-",
+            _format_route_strategy(strategy),
+        )
+
+    return Panel(
+        table,
+        title="🧭 方法分流(Method Routing)",
         title_align="left",
         box=box.ROUNDED,
         border_style=COLOR_CYAN,
@@ -146,6 +198,18 @@ def _format_strategy(strategy: RoutingStrategy) -> str:
         RoutingStrategy.FAILOVER: "Fallback",
     }
     return labels[strategy]
+
+
+def _format_route_strategy(strategy: object) -> str:
+    """Render a route strategy value stored in a snapshot."""
+    if isinstance(strategy, RoutingStrategy):
+        return _format_strategy(strategy)
+    if isinstance(strategy, str):
+        try:
+            return _format_strategy(RoutingStrategy(strategy))
+        except ValueError:
+            return strategy
+    return str(strategy)
 
 
 def _format_uptime(seconds: float) -> str:
@@ -286,6 +350,16 @@ def _build_demo_state() -> RouterState:
         consecutive_failures=4,
         last_error="upstream returned HTTP 503",
     )
+    state.method_routes = {
+        "eth_getLogs": {
+            "providers": ["Infura-Main", "Alchemy-Free"],
+            "routing_strategy": RoutingStrategy.LOWEST_LATENCY,
+        },
+        "eth_sendRawTransaction": {
+            "providers": ["QuickNode"],
+            "routing_strategy": RoutingStrategy.FAILOVER,
+        },
+    }
     state.total_requests = 15_204
     state.total_success = 15_062
     state.total_failovers = 142

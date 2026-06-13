@@ -27,7 +27,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from aioresponses import aioresponses
 
-from core.models import GlobalSettings, RoutingStrategy, RpcNode
+from core.models import GlobalSettings, MethodRoute, RoutingStrategy, RpcNode
 from core.router import (
     NoHealthyNodeError,
     _backoff_delay,
@@ -443,6 +443,106 @@ async def test_forward_lowest_latency_uses_fastest_first_hop(
         )
     assert result == body_b
     assert provider == "beta"
+
+
+async def test_proxy_method_route_limits_provider_subset(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+) -> None:
+    """A method route sends matching JSON-RPC methods only to configured providers."""
+    body = {"jsonrpc": "2.0", "id": 1, "result": []}
+    method_routes = {
+        "eth_getLogs": MethodRoute(providers=["beta"], routing_strategy=RoutingStrategy.PRIORITY)
+    }
+    with aioresponses(passthrough=["http://127.0.0.1"]) as mocked:
+        mocked.post("https://beta.test/rpc", payload=body, status=200)
+        async with aiohttp.ClientSession() as upstream:
+            app = make_app(
+                state_for,
+                two_node_config,
+                upstream_client=upstream,
+                method_routes=method_routes,
+                request_timeout_seconds=10.0,
+            )
+            server = TestServer(app)
+            client = TestClient(server)
+            await client.start_server()
+            try:
+                resp = await client.post(
+                    "/",
+                    json={"jsonrpc": "2.0", "id": 1, "method": "eth_getLogs"},
+                )
+                assert resp.status == 200
+                assert await resp.json() == body
+            finally:
+                await client.close()
+
+
+async def test_proxy_method_route_overrides_global_strategy(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+) -> None:
+    """A method route can override the app's default routing strategy."""
+    body = {"jsonrpc": "2.0", "id": 1, "result": "fast"}
+    state_for.nodes["alpha"].latency_ms = 80.0
+    state_for.nodes["beta"].latency_ms = 10.0
+    method_routes = {
+        "eth_call": MethodRoute(
+            providers=["alpha", "beta"],
+            routing_strategy=RoutingStrategy.LOWEST_LATENCY,
+        )
+    }
+    with aioresponses(passthrough=["http://127.0.0.1"]) as mocked:
+        mocked.post("https://beta.test/rpc", payload=body, status=200)
+        async with aiohttp.ClientSession() as upstream:
+            app = make_app(
+                state_for,
+                two_node_config,
+                upstream_client=upstream,
+                routing_strategy=RoutingStrategy.PRIORITY,
+                method_routes=method_routes,
+                request_timeout_seconds=10.0,
+            )
+            server = TestServer(app)
+            client = TestClient(server)
+            await client.start_server()
+            try:
+                resp = await client.post(
+                    "/",
+                    json={"jsonrpc": "2.0", "id": 1, "method": "eth_call"},
+                )
+                assert resp.status == 200
+                assert await resp.json() == body
+            finally:
+                await client.close()
+
+
+async def test_proxy_method_route_ignores_payload_without_method(
+    state_for: RouterState,
+    two_node_config: list[RpcNode],
+) -> None:
+    """Payloads without a string method fall back to the global route."""
+    body = {"jsonrpc": "2.0", "id": 1, "result": "default"}
+    method_routes = {"eth_getLogs": MethodRoute(providers=["beta"])}
+    with aioresponses(passthrough=["http://127.0.0.1"]) as mocked:
+        mocked.post("https://alpha.test/rpc", payload=body, status=200)
+        async with aiohttp.ClientSession() as upstream:
+            app = make_app(
+                state_for,
+                two_node_config,
+                upstream_client=upstream,
+                method_routes=method_routes,
+                request_timeout_seconds=10.0,
+            )
+            server = TestServer(app)
+            client = TestClient(server)
+            await client.start_server()
+            try:
+                resp = await client.post("/", json={"jsonrpc": "2.0", "id": 1})
+                assert resp.status == 200
+                assert await resp.json() == body
+            finally:
+                await client.close()
 
 
 # ---------------------------------------------------------------------------
