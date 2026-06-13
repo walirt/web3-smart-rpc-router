@@ -196,6 +196,8 @@ def test_render_frame_uses_requested_dashboard_labels(
     assert "Web3 Smart RPC Router (v1.0)" in text
     assert "Strategy: priority" in text
     assert "Bind: 127.0.0.1:8545" in text
+    assert "Status:" in text
+    assert "Uptime:" in text
     assert "节点健康(Node Health)" in text
     assert "方法分流(Method Routing)" in text
     assert "全局流量统计" in text

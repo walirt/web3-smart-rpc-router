@@ -62,19 +62,19 @@ def _build_header(snapshot: dict[str, Any]) -> Panel:
     host = snapshot.get("listen_host", "127.0.0.1")
     port = snapshot.get("listen_port")
     bind = f"{host}:{port}" if port is not None else f"{host}:-"
-    grid = Table.grid(expand=True)
-    grid.add_column(ratio=3)
-    grid.add_column(ratio=2)
-    grid.add_column(ratio=2, justify="right")
+    grid = Table.grid(expand=True, padding=(0, 2))
+    grid.add_column(ratio=3, no_wrap=True)
+    grid.add_column(ratio=2, no_wrap=True)
+    grid.add_column(ratio=2, no_wrap=True)
     grid.add_row(
         f"🚀 [bold {COLOR_CYAN}]Web3 Smart RPC Router (v1.0)[/]",
-        f"Status: [[{COLOR_NEON_GREEN}]🟢 ACTIVE[/]]",
-        f"Uptime: {_format_uptime(uptime)}",
+        f"Strategy: [bold {COLOR_CYAN}]{routing_strategy}[/]",
+        f"Bind: [bold {COLOR_CYAN}]{bind}[/]",
     )
     grid.add_row(
-        f"Strategy: [bold {COLOR_CYAN}]{routing_strategy}[/]",
         "",
-        f"Bind: [bold {COLOR_CYAN}]{bind}[/]",
+        f"Status: [[{COLOR_NEON_GREEN}]🟢 ACTIVE[/]]",
+        f"Uptime: {_format_uptime(uptime)}",
     )
     return Panel(grid, box=box.ROUNDED, border_style=COLOR_CYAN, style=f"on {COLOR_BG}")
 
